@@ -6,9 +6,10 @@ File format (INI-ish, hand-editable):
     value                       # one bare value per line, no leading whitespace
     ...
 
-Empty lines and lines starting with `#` are ignored on read. The writer always
-sorts values alphabetically, deduplicates, drops empty sections, and inserts
-one blank line between sections. Comments are not preserved.
+Empty lines and `#` comments (full-line or trailing inline) are ignored on
+read. The writer always sorts values alphabetically, deduplicates, drops empty
+sections, and inserts one blank line between sections. Comments are not
+preserved.
 
 CLI:
     python3 proxies_conf.py tags <path>
@@ -34,8 +35,8 @@ def load(path: str) -> dict[str, dict[str, list[str]]]:
     cur: list[str] | None = None
     with open(path) as f:
         for raw in f:
-            line = raw.strip()
-            if not line or line.startswith('#'):
+            line = raw.split('#', 1)[0].strip()
+            if not line:
                 continue
             m = _HEADER.match(line)
             if m:

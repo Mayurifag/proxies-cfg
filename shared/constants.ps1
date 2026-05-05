@@ -1,6 +1,5 @@
 # Cross-platform constants. Dot-sourced.
 
-$SingboxVersion = '1.13.11-extended-2.0.1'
 $SingboxRepo    = 'shtorm-7/sing-box-extended'
 
 $GeoipUrl   = 'https://raw.githubusercontent.com/runetfreedom/russia-blocked-geoip/release/geoip.dat'
@@ -10,3 +9,6 @@ $DirectTestUrl  = 'https://checkip.amazonaws.com'
 $ProxyItTestUrl = 'https://api.ipify.org'
 $ProxyRuTestUrl = 'https://ident.me'
 $AllTestUrls    = @($DirectTestUrl, $ProxyItTestUrl, $ProxyRuTestUrl)
+
+# Non-.ru domain inside geosite-ru-available-only-inside; echoes caller IP.
+$RuInsideProbeUrl = 'https://showip.net/'

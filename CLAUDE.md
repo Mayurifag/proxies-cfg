@@ -4,7 +4,10 @@ TUN-based transparent proxy on Linux, macOS, Windows. Single binary
 [`shtorm-7/sing-box-extended`](https://github.com/shtorm-7/sing-box-extended)
 (upstream sing-box lacks `xhttp` transport). Outbound configs are pulled from
 **subscription URLs** at every `setup`; nothing about the wire protocol is
-hard-coded.
+hard-coded. The sing-box binary itself is auto-updated to the latest GitHub
+release on each `setup` (resolved via `releases/latest` API; falls back to the
+existing local binary when offline). Version is tracked in
+`<runtime>/bin/.version`.
 
 ## Code Style
 
@@ -76,7 +79,8 @@ windows/runtime/                  gitignored: binary, generated config, rule-set
 
 Source-of-truth file describing routing. INI-ish, hand-editable. One bare value
 per line, no leading whitespace, alphabetical (writer enforces sort + dedup).
-`#` comments + blank lines allowed in input but not preserved on rewrite.
+`#` comments (full-line or trailing inline, e.g. `telegram # blocked in RU`) +
+blank lines allowed in input but not preserved on rewrite.
 
 ~~~
 [<tag>.domains]      # exact-match domains routed via this outbound

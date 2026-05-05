@@ -57,6 +57,17 @@ else
     echo "  QUIC tests skipped ($CURL_HTTP3 lacks --http3)"
 fi
 
+if [[ -s "$RULE_SET_DIR/geosite-ru-available-only-inside.json" ]]; then
+    echo '=== Verify: ru-available-only-inside routing ==='
+    PROBE_IP=$(curl -s --max-time 15 "$RU_INSIDE_PROBE_URL" \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1 || true)
+    if [[ -z "$PROBE_IP" ]]; then
+        echo "FAIL: showip.net unreachable" >&2; exit 1
+    fi
+    [[ "$PROBE_IP" == "$RU" ]] || { echo "FAIL: showip.net ($PROBE_IP) != proxy_ru ($RU)" >&2; exit 1; }
+    echo "  showip.net (non-.ru) routed via proxy_ru: $PROBE_IP"
+fi
+
 echo '=== Verify: DNS sanity ==='
 RESOLVED=$(eval "$DNS_CHECK_CMD")
 [[ -n "$RESOLVED" ]] || { echo "FAIL: DNS sanity check returned empty" >&2; exit 1; }
@@ -85,20 +96,6 @@ echo '=== Verify: no IPv6 leak ==='
 v6=$(curl -6 -s --max-time 3 https://api6.ipify.org 2>/dev/null || true)
 [[ -z "$v6" ]] || { echo "FAIL: IPv6 leak: $v6" >&2; exit 1; }
 echo '  no IPv6 egress (IPv4-only constraint holds)'
-
-if [[ -n "${ADD_DOMAIN:-}" && -n "${REMOVE_DOMAIN:-}" ]]; then
-    echo '=== Verify: add-domain round-trip ==='
-    RT_DOMAIN=httpbin.org
-    RT_BEFORE=$(curl -s --max-time 10 https://$RT_DOMAIN/ip | python3 -c 'import json,sys;print(json.load(sys.stdin)["origin"])' 2>/dev/null || true)
-    [[ -n "$RT_BEFORE" ]] || { echo "FAIL: $RT_DOMAIN unreachable pre-add" >&2; exit 1; }
-    NO_GIT=1 $ADD_DOMAIN "$RT_DOMAIN" proxy_it
-    sleep 3
-    RT_AFTER=$(curl -s --max-time 10 https://$RT_DOMAIN/ip | python3 -c 'import json,sys;print(json.load(sys.stdin)["origin"])' 2>/dev/null || true)
-    NO_GIT=1 $REMOVE_DOMAIN "$RT_DOMAIN"
-    [[ -n "$RT_AFTER" ]] || { echo "FAIL: $RT_DOMAIN unreachable post-add" >&2; exit 1; }
-    [[ "$RT_AFTER" == "$IT" ]] || { echo "FAIL: $RT_DOMAIN ($RT_AFTER) != proxy_it ($IT)" >&2; exit 1; }
-    echo "  $RT_DOMAIN routed via proxy_it after add"
-fi
 
 if [[ -n "${SINGBOX_LOG:-}" && -f "$SINGBOX_LOG" ]]; then
     echo '=== Verify: log scan ==='

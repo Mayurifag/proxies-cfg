@@ -15,7 +15,7 @@ case "$(uname -m)" in
 esac
 export SINGBOX_ARCH SINGBOX_BIN RUNTIME_DIR
 
-echo "[setup] arch=$SINGBOX_ARCH sing-box-extended=$SINGBOX_VERSION"
+echo "[setup] arch=$SINGBOX_ARCH"
 bash shared/install_singbox.sh
 
 echo '[setup] geodata + rule-sets'

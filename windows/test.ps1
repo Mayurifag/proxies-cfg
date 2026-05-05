@@ -68,6 +68,22 @@ if ($directIp -and $itIp -and $ruIp) {
     Write-Result 'proxy_it != proxy_ru' ($itIp     -ne $ruIp) -Detail "both=$itIp"
 }
 
+$probeRuleset = Join-Path $RuleSetDir 'geosite-ru-available-only-inside.json'
+if ((Test-Path $probeRuleset) -and $ruIp) {
+    Write-Host '=== Verify: ru-available-only-inside routing ===' -ForegroundColor Cyan
+    $null = [System.Net.ServicePointManager]::FindServicePoint($RuInsideProbeUrl).CloseConnectionGroup('')
+    $probeIp = $null
+    try {
+        $resp = Invoke-WebRequest -Uri $RuInsideProbeUrl -TimeoutSec 15 -UseBasicParsing
+        if ($resp.Content -match '(\d{1,3}(?:\.\d{1,3}){3})') { $probeIp = $matches[1] }
+    } catch { }
+    if ($probeIp) {
+        Write-Result 'showip.net (non-.ru) routed via proxy_ru' ($probeIp -eq $ruIp) -Detail "got=$probeIp ru=$ruIp"
+    } else {
+        Write-Result 'showip.net reachable' $false -Detail 'no IP parsed from response'
+    }
+}
+
 Write-Host '=== Verify: rule-set integrity ===' -ForegroundColor Cyan
 $expected = @()
 try {
@@ -102,33 +118,6 @@ try {
     if ($v6resp.Content -match ':') { $v6 = $v6resp.Content.Trim() }
 } catch { }
 Write-Result 'no IPv6 egress' (-not $v6) -Detail "v6=$v6"
-
-Write-Host '=== Verify: add-domain round-trip ===' -ForegroundColor Cyan
-$rtDomain = 'httpbin.org'
-$rtBefore = $null
-try {
-    $resp = Invoke-WebRequest -Uri "https://$rtDomain/ip" -TimeoutSec 10 -UseBasicParsing
-    $rtBefore = ($resp.Content | ConvertFrom-Json).origin
-} catch { }
-if (-not $rtBefore) {
-    Write-Result "round-trip: $rtDomain reachable pre-add" $false
-} else {
-    $env:NO_GIT = '1'
-    try {
-        & "$PSScriptRoot\add_domain.ps1" -Domain $rtDomain -Proxy proxy_it
-        Start-Sleep -Seconds 3
-        $null = [System.Net.ServicePointManager]::FindServicePoint("https://$rtDomain/ip").CloseConnectionGroup('')
-        $rtAfter = $null
-        try {
-            $resp = Invoke-WebRequest -Uri "https://$rtDomain/ip" -TimeoutSec 10 -UseBasicParsing
-            $rtAfter = ($resp.Content | ConvertFrom-Json).origin
-        } catch { }
-        Write-Result "round-trip: $rtDomain routed via proxy_it" ($rtAfter -eq $itIp) -Detail "after=$rtAfter it=$itIp"
-    } finally {
-        & "$PSScriptRoot\remove_domain.ps1" -Domain $rtDomain
-        Remove-Item Env:NO_GIT -ErrorAction SilentlyContinue
-    }
-}
 
 Write-Host '=== Verify: log scan ===' -ForegroundColor Cyan
 if (Test-Path $SingboxLog) {

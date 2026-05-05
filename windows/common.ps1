@@ -63,24 +63,53 @@ function Invoke-Python {
 }
 
 function Install-Singbox {
-    if (Test-Path $SingboxExe) { return }
     foreach ($d in $RuntimeDir, $SingboxDir) {
         if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null }
     }
-    $zipUrl  = "https://github.com/$SingboxRepo/releases/download/v$SingboxVersion/sing-box-$SingboxVersion-windows-amd64.zip"
-    $zipPath = Join-Path $RuntimeDir "sing-box-$SingboxVersion-windows-amd64.zip"
-    if (-not (Test-Path $zipPath) -or (Get-Item $zipPath).Length -lt 1MB) {
-        Write-Phase 'install_singbox' "downloading $zipUrl"
-        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+    $sentinel = Join-Path $SingboxDir '.version'
+    $current  = if (Test-Path $sentinel) { (Get-Content $sentinel -Raw).Trim() } else { '' }
+
+    $resolved = $null
+    try {
+        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$SingboxRepo/releases/latest" `
+            -TimeoutSec 5 -UseBasicParsing
+        $resolved = ($rel.tag_name -replace '^v', '')
+    } catch { $resolved = $null }
+
+    if (-not $resolved) {
+        if ((Test-Path $SingboxExe) -and $current) {
+            Write-Phase 'install_singbox' "github unreachable; using local $current"
+            return
+        }
+        Write-Error 'github unreachable and no local binary'; exit 1
     }
-    Write-Phase 'install_singbox' "extracting to $SingboxDir"
+
+    if ((Test-Path $SingboxExe) -and $current -eq $resolved) {
+        Write-Phase 'install_singbox' "up to date ($resolved)"
+        return
+    }
+
+    if ($current) {
+        Write-Phase 'install_singbox' "updating $current -> $resolved"
+    } else {
+        Write-Phase 'install_singbox' "installing $resolved"
+    }
+
+    Get-ChildItem $SingboxDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+    Get-ChildItem $RuntimeDir -Filter 'sing-box-*.zip' -ErrorAction SilentlyContinue | Remove-Item -Force
+
+    $zipUrl  = "https://github.com/$SingboxRepo/releases/download/v$resolved/sing-box-$resolved-windows-amd64.zip"
+    $zipPath = Join-Path $RuntimeDir "sing-box-$resolved-windows-amd64.zip"
+    Write-Phase 'install_singbox' "downloading $zipUrl"
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
     Expand-Archive -Path $zipPath -DestinationPath $SingboxDir -Force
-    $nested = Join-Path $SingboxDir "sing-box-$SingboxVersion-windows-amd64"
+    $nested = Join-Path $SingboxDir "sing-box-$resolved-windows-amd64"
     if (Test-Path (Join-Path $nested 'sing-box.exe')) {
         Get-ChildItem $nested | Move-Item -Destination $SingboxDir -Force
         Remove-Item $nested -Recurse -Force
     }
     if (-not (Test-Path $SingboxExe)) { Write-Error 'sing-box.exe missing after extract'; exit 1 }
+    Set-Content -Path $sentinel -Value $resolved -NoNewline
 }
 
 function Build-SingboxConfig {
