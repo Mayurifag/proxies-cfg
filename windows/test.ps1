@@ -68,6 +68,21 @@ if ($directIp -and $itIp -and $ruIp) {
     Write-Result 'proxy_it != proxy_ru' ($itIp     -ne $ruIp) -Detail "both=$itIp"
 }
 
+$sshTestCmd = (Get-Content $SecretsFile -Raw | ConvertFrom-Json).PSObject.Properties['ssh_test_command']
+if ($sshTestCmd -and $sshTestCmd.Value) {
+    Write-Host '=== Verify: SSH to deploy host (direct routing) ===' -ForegroundColor Cyan
+    $tokens = $sshTestCmd.Value -split '\s+'
+    $exe = $tokens[0]
+    $sshArgs = @($tokens[1..($tokens.Length - 1)]) + @('-o','BatchMode=yes','-o','ConnectTimeout=5','true')
+    $proc = Start-Process -FilePath $exe -ArgumentList $sshArgs -PassThru -NoNewWindow
+    if ($proc.WaitForExit(10000)) {
+        Write-Result "$($sshTestCmd.Value) ok" ($proc.ExitCode -eq 0) -Detail "exit=$($proc.ExitCode)"
+    } else {
+        $proc.Kill()
+        Write-Result "$($sshTestCmd.Value) ok" $false -Detail 'timeout 10s (TUN may eat server IP)'
+    }
+}
+
 $probeRuleset = Join-Path $RuleSetDir 'geosite-ru-available-only-inside.json'
 if ((Test-Path $probeRuleset) -and $ruIp) {
     Write-Host '=== Verify: ru-available-only-inside routing ===' -ForegroundColor Cyan

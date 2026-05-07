@@ -44,6 +44,17 @@ assert_ne 'direct'   "$DIRECT" 'proxy_it' "$IT"
 assert_ne 'direct'   "$DIRECT" 'proxy_ru' "$RU"
 assert_ne 'proxy_it' "$IT"     'proxy_ru' "$RU"
 
+SSH_TEST_CMD=$(jq -er '.ssh_test_command // empty' "$SECRETS_FILE" 2>/dev/null || true)
+if [[ -n "$SSH_TEST_CMD" ]]; then
+    echo '=== Verify: SSH to deploy host (direct routing) ==='
+    if timeout 10 $SSH_TEST_CMD -o BatchMode=yes -o ConnectTimeout=5 true; then
+        echo "  $SSH_TEST_CMD ok"
+    else
+        echo "FAIL: $SSH_TEST_CMD failed (TUN may be eating server IP)" >&2
+        exit 1
+    fi
+fi
+
 echo '=== Verify: QUIC routing ==='
 if "$CURL_HTTP3" --http3 -V >/dev/null 2>&1; then
     QUIC_IT=$("$CURL_HTTP3" -s --http3 --max-time 10 "$PROXY_IT_TEST_URL" | tr -d '[:space:]')

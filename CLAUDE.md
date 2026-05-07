@@ -30,7 +30,7 @@ Windows: `#Requires -RunAsAdministrator`.
 
 ~~~
 proxies.conf                      git-crypt-encrypted: per-tag [domains/geosites/geoips] sections
-secrets.json                      git-crypt-encrypted: sudo_password, macos_sudo_password, proxy_*.sub_url
+secrets.json                      git-crypt-encrypted: sudo_password, macos_sudo_password, proxy_*.sub_url, ssh_test_command
 Makefile                          platform-detecting wrapper for setup/test/ci/doctor/etc.
 pyproject.toml + uv.lock          dev tool deps (ruff). uv manages env.
 .python-version                   pinned dev interpreter (3.13)
@@ -84,8 +84,15 @@ twitter
 
 `<tag>` names a sing-box outbound. Reserved tag `direct` routes via the
 built-in direct outbound and needs no `sub_url` in `secrets.json`; used for
-VPS panel hostnames + sites that should bypass the proxy. `direct` rules are
-emitted before proxy rules so VPS hosts overlapping a geosite still bypass.
+sites that should bypass the proxy. `direct` rules are emitted before proxy
+rules so direct hosts overlapping a geosite still bypass.
+
+Each proxy tag's `sub_url` panel host **and** the parsed proxy `server` field
+are auto-resolved to IPv4 at build time and emitted as a single `ip_cidr`
+direct rule before all other rules. This lets raw-IP connections (SSH, deploy
+scripts) to those endpoints bypass TUN even when the IP would otherwise match
+a geoip set the proxy belongs to. Refreshed per `setup`; assumes server IPs
+are stable between setups.
 
 `domains` entries become sing-box `domain_suffix` rules — listing
 `mayurifag.ru` covers `mayurifag.ru` and `*.mayurifag.ru`. Static base config

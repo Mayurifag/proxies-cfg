@@ -22,8 +22,11 @@ below — single source of truth. `--interface-name` pins the TUN adapter name
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import socket
 import sys
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -92,6 +95,42 @@ def _missing_sub_urls(proxies: dict, secrets: dict) -> list[str]:
     return missing
 
 
+def _resolve_ipv4(host: str) -> list[str]:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return [host]
+    try:
+        info = socket.getaddrinfo(host, None, socket.AF_INET)
+    except OSError as e:
+        msg = f"failed to resolve {host!r}: {e}"
+        raise SystemExit(msg) from e
+    return sorted({entry[4][0] for entry in info})
+
+
+def _endpoint_ips(secrets: dict, proxies: dict, parsed: list[dict]) -> list[str]:
+    # Pin proxy server + panel IPs to direct so raw-IP connections (SSH,
+    # deploy scripts) bypass TUN even when the IP would otherwise match
+    # a geoip rule the proxy belongs to.
+    hosts: set[str] = set()
+    for tag in proxies:
+        if tag == "direct":
+            continue
+        host = urllib.parse.urlparse(secrets[tag]["sub_url"]).hostname
+        if host:
+            hosts.add(host)
+    for o in parsed:
+        s = o.get("server", "")
+        if s:
+            hosts.add(s)
+    ips: set[str] = set()
+    for h in hosts:
+        ips.update(_resolve_ipv4(h))
+    return sorted(ips)
+
+
 def _route_rules(proxies: dict) -> list[dict]:
     # `direct` first so VPS hosts / panel domains bypass overlapping
     # geosite/geoip rules from proxy tags.
@@ -137,12 +176,17 @@ def build(
         }
         for t in sorted(all_tags)
     ]
-    cfg["route"]["rules"].extend(_route_rules(proxies))
 
-    for tag in sorted(proxies):
-        if tag == "direct":
-            continue
-        cfg["outbounds"].append(sub_parse.fetch_outbound(secrets[tag]["sub_url"], tag))
+    parsed = [
+        sub_parse.fetch_outbound(secrets[tag]["sub_url"], tag)
+        for tag in sorted(proxies)
+        if tag != "direct"
+    ]
+    endpoint_ips = _endpoint_ips(secrets, proxies, parsed)
+    if endpoint_ips:
+        cfg["route"]["rules"].append({"ip_cidr": endpoint_ips, "outbound": "direct"})
+    cfg["route"]["rules"].extend(_route_rules(proxies))
+    cfg["outbounds"].extend(parsed)
 
     return cfg
 
