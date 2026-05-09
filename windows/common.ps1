@@ -29,20 +29,20 @@ function Assert-Unlocked {
             continue
         }
         if (-not (Get-Command git-crypt -ErrorAction SilentlyContinue)) {
-            Write-Error "$f is git-crypt-locked and git-crypt is not installed."
-            exit 1
+            throw "$f is git-crypt-locked and git-crypt is not installed."
         }
         Write-Host "[common] git-crypt locked -> running 'git-crypt unlock'" -ForegroundColor Yellow
         Push-Location $RepoRoot
-        try { & git-crypt unlock } finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "'git-crypt unlock' failed (working tree dirty? gpg agent?)."
-            exit 1
+        try {
+            & git-crypt unlock
+            $unlockExit = $LASTEXITCODE
+        } finally { Pop-Location }
+        if ($unlockExit -ne 0) {
+            throw "'git-crypt unlock' failed (working tree dirty? gpg agent?)."
         }
         return
     }
 }
-Assert-Unlocked
 
 function Assert-Admin {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -184,3 +184,5 @@ function Test-Outbound {
         return $null
     }
 }
+
+Assert-Unlocked

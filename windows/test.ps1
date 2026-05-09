@@ -71,9 +71,13 @@ if ($directIp -and $itIp -and $ruIp) {
 $sshTestCmd = (Get-Content $SecretsFile -Raw | ConvertFrom-Json).PSObject.Properties['ssh_test_command']
 if ($sshTestCmd -and $sshTestCmd.Value) {
     Write-Host '=== Verify: SSH to deploy host (direct routing) ===' -ForegroundColor Cyan
-    $tokens = $sshTestCmd.Value -split '\s+'
+    $tokens = @($sshTestCmd.Value -split '\s+' | Where-Object { $_ })
     $exe = $tokens[0]
-    $sshArgs = @($tokens[1..($tokens.Length - 1)]) + @('-o','BatchMode=yes','-o','ConnectTimeout=5','true')
+    $sshArgs = @()
+    if ($tokens.Length -gt 1) {
+        $sshArgs += $tokens[1..($tokens.Length - 1)]
+    }
+    $sshArgs += @('-o','BatchMode=yes','-o','ConnectTimeout=5','true')
     $proc = Start-Process -FilePath $exe -ArgumentList $sshArgs -PassThru -NoNewWindow
     if ($proc.WaitForExit(10000)) {
         Write-Result "$($sshTestCmd.Value) ok" ($proc.ExitCode -eq 0) -Detail "exit=$($proc.ExitCode)"
