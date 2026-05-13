@@ -101,6 +101,9 @@ bypass). All `domains` entries are suffix-matched — `mayurifag.ru` catches
 `mayurifag.ru` and `*.mayurifag.ru`. Edits `proxies.conf` and restarts the
 proxy.
 
+`[<tag>.ip_versions]` accepts `4` or `6` catch-all routing rules; current IPv6
+traffic is routed through `proxy_it`.
+
 ## Suggested shell aliases
 
 ~~~sh
@@ -176,8 +179,8 @@ git push
 
 ## Notes
 
-- IPv4-only by design. ISP and proxy servers lack IPv6, so DNS is pinned to
-  `strategy: ipv4_only`. Don't switch until both ends gain IPv6.
+- DNS prefers IPv4, but `[proxy_it.ip_versions]` routes IPv6 traffic through
+  `proxy_it`.
 - `twitch.tv` needs proxy for country restriction; CDN stays direct.
 - `api.ipify.org` / `ident.me` are test-only domains for verifying routing.
 - Subscription panels rate-limit. One fetch per `setup` is fine; rapid

@@ -2,9 +2,18 @@
 # Cross-platform constants. Sourced (not executed).
 
 case "$(uname -s)" in
-    Linux)  OS_TAG=linux  ; SUDO_KEY=sudo_password ;;
-    Darwin) OS_TAG=macos  ; SUDO_KEY=macos_sudo_password ;;
-    *)      OS_TAG=unknown; SUDO_KEY=sudo_password ;;
+Linux)
+	OS_TAG=linux
+	SUDO_KEY=sudo_password
+	;;
+Darwin)
+	OS_TAG=macos
+	SUDO_KEY=macos_sudo_password
+	;;
+*)
+	OS_TAG=unknown
+	SUDO_KEY=sudo_password
+	;;
 esac
 OS_COMMON="$OS_TAG/common.sh"
 
@@ -15,6 +24,8 @@ GEOSITE_URL="https://raw.githubusercontent.com/runetfreedom/russia-blocked-geosi
 
 DIRECT_TEST_URL="https://checkip.amazonaws.com"
 PROXY_IT_TEST_URL="https://api.ipify.org"
+PROXY_IT_IPV6_TEST_HOST="ntc.party"
+PROXY_IT_IPV6_TEST_URL="https://$PROXY_IT_IPV6_TEST_HOST"
 PROXY_RU_TEST_URL="https://ident.me"
 ALL_TEST_URLS=("$DIRECT_TEST_URL" "$PROXY_IT_TEST_URL" "$PROXY_RU_TEST_URL")
 

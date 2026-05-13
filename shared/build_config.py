@@ -46,7 +46,7 @@ def _base_config(log_output: str | None = None) -> dict:
     tun = {
         "type": "tun",
         "tag": "tun-in",
-        "address": ["172.19.0.1/30"],
+        "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
         "mtu": 1500,
         "auto_route": True,
         "strict_route": True,
@@ -58,10 +58,18 @@ def _base_config(log_output: str | None = None) -> dict:
         "log": log,
         "dns": {
             "servers": [
+                {
+                    "type": "fakeip",
+                    "tag": "fakeip",
+                    "inet4_range": "172.19.1.0/24",
+                    "inet6_range": "fc00::/18",
+                },
                 {"type": "https", "tag": "doh-cf", "server": "1.1.1.1"},
                 {"type": "https", "tag": "doh-google", "server": "8.8.8.8"},
             ],
-            "strategy": "ipv4_only",
+            "rules": [],
+            "final": "doh-cf",
+            "strategy": "prefer_ipv4",
         },
         "inbounds": [tun],
         "outbounds": [{"type": "direct", "tag": "direct"}],
@@ -140,10 +148,36 @@ def _route_rules(proxies: dict) -> list[dict]:
         domains = sorted(set(kinds.get("domains", [])))
         if domains:
             rules.append({"domain_suffix": domains, "outbound": tag})
+        for ip_version in sorted(set(kinds.get("ip_versions", []))):
+            if ip_version not in {"4", "6"}:
+                msg = f"invalid ip_version for {tag}: {ip_version!r}"
+                raise SystemExit(msg)
+            rules.append({"ip_version": int(ip_version), "outbound": tag})
         rs = _geo_tags(kinds)
         if rs:
             rules.append({"rule_set": rs, "outbound": tag})
     return rules
+
+
+def _fakeip_dns_rules(proxies: dict) -> list[dict]:
+    domains = sorted(
+        {
+            d
+            for tag, kinds in proxies.items()
+            if tag != "direct"
+            for d in kinds.get("domains", [])
+        },
+    )
+    if not domains:
+        return []
+    return [
+        {
+            "domain_suffix": domains,
+            "query_type": ["A", "AAAA"],
+            "action": "route",
+            "server": "fakeip",
+        },
+    ]
 
 
 def build(
@@ -158,6 +192,7 @@ def build(
         cfg["inbounds"][0]["interface_name"] = interface_name
 
     proxies = load(proxies_path)
+    cfg["dns"]["rules"] = _fakeip_dns_rules(proxies)
 
     missing = _missing_sub_urls(proxies, secrets)
     if missing:

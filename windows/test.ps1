@@ -68,6 +68,19 @@ if ($directIp -and $itIp -and $ruIp) {
     Write-Result 'proxy_it != proxy_ru' ($itIp     -ne $ruIp) -Detail "both=$itIp"
 }
 
+Write-Host '=== Verify: proxy_it IPv6 routing ===' -ForegroundColor Cyan
+$itIpv6Ok = $false
+try {
+    $ipv6Addr = [System.Net.Dns]::GetHostAddresses($ProxyItIpv6TestHost) |
+        Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6 } |
+        Select-Object -First 1
+    if ($ipv6Addr -and (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
+        & curl.exe -6 -fsSI --resolve "$($ProxyItIpv6TestHost):443:[$ipv6Addr]" --max-time 15 $ProxyItIpv6TestUrl | Out-Null
+        $itIpv6Ok = $LASTEXITCODE -eq 0
+    }
+} catch { }
+Write-Result 'proxy_it IPv6 ntc.party reachable' $itIpv6Ok
+
 $sshTestCmd = (Get-Content $SecretsFile -Raw | ConvertFrom-Json).PSObject.Properties['ssh_test_command']
 if ($sshTestCmd -and $sshTestCmd.Value) {
     Write-Host '=== Verify: SSH to deploy host (direct routing) ===' -ForegroundColor Cyan
@@ -130,14 +143,6 @@ if ($expected) {
     }
     Write-Result 'rule-set: all non-empty' (-not $emptyFiles) -Detail "empty=$($emptyFiles -join ',')"
 }
-
-Write-Host '=== Verify: no IPv6 leak ===' -ForegroundColor Cyan
-$v6 = $null
-try {
-    $v6resp = Invoke-WebRequest -Uri 'https://api64.ipify.org' -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-    if ($v6resp.Content -match ':') { $v6 = $v6resp.Content.Trim() }
-} catch { }
-Write-Result 'no IPv6 egress' (-not $v6) -Detail "v6=$v6"
 
 Write-Host '=== Verify: log scan ===' -ForegroundColor Cyan
 if (Test-Path $SingboxLog) {

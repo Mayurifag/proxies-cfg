@@ -2,7 +2,7 @@
 """Source-of-truth parser/editor for proxies.conf.
 
 File format (INI-ish, hand-editable):
-    [<tag>.<kind>]              # kind in {domains, geosites, geoips}
+    [<tag>.<kind>]              # kind in {domains, geosites, geoips, ip_versions}
     value                       # one bare value per line, no leading whitespace
     ...
 
@@ -34,7 +34,7 @@ import re
 import sys
 from pathlib import Path
 
-KINDS = ("domains", "geosites", "geoips")
+KINDS = ("domains", "geosites", "geoips", "ip_versions")
 _HEADER = re.compile(r"^\[([A-Za-z0-9_]+)\.(" + "|".join(KINDS) + r")\]$")
 
 

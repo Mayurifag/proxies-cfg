@@ -29,7 +29,7 @@ Windows: `#Requires -RunAsAdministrator`.
 ## Project Layout
 
 ~~~
-proxies.conf                      git-crypt-encrypted: per-tag [domains/geosites/geoips] sections
+proxies.conf                      git-crypt-encrypted: per-tag [domains/geosites/geoips/ip_versions] sections
 secrets.json                      git-crypt-encrypted: sudo_password, macos_sudo_password, proxy_*.sub_url, ssh_test_command
 Makefile                          platform-detecting wrapper for setup/test/ci/doctor/etc.
 pyproject.toml + uv.lock          dev tool deps (ruff). uv manages env.
@@ -80,6 +80,9 @@ telegram
 
 [<tag>.geoips]       # geoip code names (without "geoip-" prefix)
 twitter
+
+[<tag>.ip_versions] # IP version catch-all: 4 or 6
+6
 ~~~
 
 `<tag>` names a sing-box outbound. Reserved tag `direct` routes via the
@@ -95,7 +98,8 @@ a geoip set the proxy belongs to. Refreshed per `setup`; assumes server IPs
 are stable between setups.
 
 `domains` entries become sing-box `domain_suffix` rules — listing
-`mayurifag.ru` covers `mayurifag.ru` and `*.mayurifag.ru`. Static base config
+`mayurifag.ru` covers `mayurifag.ru` and `*.mayurifag.ru`. `ip_versions`
+entries become sing-box `ip_version` catch-all rules. Static base config
 (log/dns/inbounds/sniff+hijack/final) is inlined in `build_config.py`.
 
 ## Outbounds
@@ -114,7 +118,7 @@ parsed outbound shape changes accordingly.
 
 | Constant     | Value                                          | Where defined                           | Notes                                          |
 | ------------ | ---------------------------------------------- | --------------------------------------- | ---------------------------------------------- |
-| TUN address  | `172.19.0.1/30`                                | `shared/build_config.py` `_base_config` | Same on all OSes; sing-box auto-assigns        |
+| TUN address  | `172.19.0.1/30`, `fdfe:dcba:9876::1/126`       | `shared/build_config.py` `_base_config` | Same on all OSes; sing-box auto-assigns        |
 | TUN MTU      | `1500`                                         | `shared/build_config.py` `_base_config` | Default; lower if proxy server has smaller MTU |
 | Stack        | `mixed`                                        | `shared/build_config.py` `_base_config` | gvisor userspace TCP for reliable sniff        |
 | geodata URLs | runetfreedom/*                                 | `shared/geodata_urls.{sh,ps1}`          | Single source of truth                         |
