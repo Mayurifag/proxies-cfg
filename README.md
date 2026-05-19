@@ -104,6 +104,10 @@ proxy.
 `[<tag>.ip_versions]` accepts `4` or `6` catch-all routing rules; current IPv6
 traffic is routed through `proxy_it`.
 
+`[<tag>.protocols]` accepts sing-box sniffed protocol names. Current config
+routes `bittorrent` via `direct`, while HTTP/HTTPS tracker domains still follow
+normal domain/geosite/geoip rules and can go through a proxy.
+
 ## Suggested shell aliases
 
 ~~~sh
@@ -181,6 +185,8 @@ git push
 
 - DNS prefers IPv4, but `[proxy_it.ip_versions]` routes IPv6 traffic through
   `proxy_it`.
+- BitTorrent peer traffic is routed direct by `[direct.protocols]`; tracker
+  domains are not exempted and still follow normal proxy rules.
 - `twitch.tv` needs proxy for country restriction; CDN stays direct.
 - `api.ipify.org` / `ident.me` are test-only domains for verifying routing.
 - Subscription panels rate-limit. One fetch per `setup` is fine; rapid

@@ -148,6 +148,9 @@ def _route_rules(proxies: dict) -> list[dict]:
         domains = sorted(set(kinds.get("domains", [])))
         if domains:
             rules.append({"domain_suffix": domains, "outbound": tag})
+        protocols = sorted(set(kinds.get("protocols", [])))
+        if protocols:
+            rules.append({"protocol": protocols, "outbound": tag})
         for ip_version in sorted(set(kinds.get("ip_versions", []))):
             if ip_version not in {"4", "6"}:
                 msg = f"invalid ip_version for {tag}: {ip_version!r}"

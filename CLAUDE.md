@@ -29,7 +29,7 @@ Windows: `#Requires -RunAsAdministrator`.
 ## Project Layout
 
 ~~~
-proxies.conf                      git-crypt-encrypted: per-tag [domains/geosites/geoips/ip_versions] sections
+proxies.conf                      git-crypt-encrypted: per-tag [domains/protocols/geosites/geoips/ip_versions] sections
 secrets.json                      git-crypt-encrypted: sudo_password, macos_sudo_password, proxy_*.sub_url, ssh_test_command
 Makefile                          platform-detecting wrapper for setup/test/ci/doctor/etc.
 pyproject.toml + uv.lock          dev tool deps (ruff). uv manages env.
@@ -75,6 +75,9 @@ blank lines allowed in input but not preserved on rewrite.
 [<tag>.domains]      # suffix-match: apex + all subdomains
 mayurifag.ru
 
+[<tag>.protocols]    # sing-box sniffed protocol names
+bittorrent
+
 [<tag>.geosites]     # geosite category names (without "geosite-" prefix)
 telegram
 
@@ -98,9 +101,14 @@ a geoip set the proxy belongs to. Refreshed per `setup`; assumes server IPs
 are stable between setups.
 
 `domains` entries become sing-box `domain_suffix` rules — listing
-`mayurifag.ru` covers `mayurifag.ru` and `*.mayurifag.ru`. `ip_versions`
-entries become sing-box `ip_version` catch-all rules. Static base config
-(log/dns/inbounds/sniff+hijack/final) is inlined in `build_config.py`.
+`mayurifag.ru` covers `mayurifag.ru` and `*.mayurifag.ru`. `protocols` entries
+become sniffed sing-box `protocol` rules. `ip_versions` entries become sing-box
+`ip_version` catch-all rules. Static base config (log/dns/inbounds/sniff+hijack/
+final) is inlined in `build_config.py`.
+
+Current BitTorrent policy: `[direct.protocols] bittorrent` keeps sniffed peer
+traffic direct, but HTTP/HTTPS tracker domains are intentionally not exempted
+and still follow normal domain/geosite/geoip proxy rules.
 
 ## Outbounds
 
