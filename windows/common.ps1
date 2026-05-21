@@ -106,19 +106,26 @@ function Install-Singbox {
         Write-Phase 'install_singbox' "installing $resolved"
     }
 
-    Get-ChildItem $SingboxDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-    Get-ChildItem $RuntimeDir -Filter 'sing-box-*.zip' -ErrorAction SilentlyContinue | Remove-Item -Force
-
     $zipUrl  = "https://github.com/$SingboxRepo/releases/download/v$resolved/sing-box-$resolved-windows-amd64.zip"
     $zipPath = Join-Path $RuntimeDir "sing-box-$resolved-windows-amd64.zip"
+    $zipTmp = "$zipPath.tmp"
+    $extractTmp = Join-Path $RuntimeDir "sing-box-$resolved-windows-amd64.extract"
+
+    Remove-Item $zipTmp -Force -ErrorAction SilentlyContinue
+    Remove-Item $extractTmp -Recurse -Force -ErrorAction SilentlyContinue
     Write-Phase 'install_singbox' "downloading $zipUrl"
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-    Expand-Archive -Path $zipPath -DestinationPath $SingboxDir -Force
-    $nested = Join-Path $SingboxDir "sing-box-$resolved-windows-amd64"
-    if (Test-Path (Join-Path $nested 'sing-box.exe')) {
-        Get-ChildItem $nested | Move-Item -Destination $SingboxDir -Force
-        Remove-Item $nested -Recurse -Force
-    }
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipTmp -UseBasicParsing
+    Move-Item $zipTmp $zipPath -Force
+    Expand-Archive -Path $zipPath -DestinationPath $extractTmp -Force
+    $installSource = $extractTmp
+    $nested = Join-Path $extractTmp "sing-box-$resolved-windows-amd64"
+    if (Test-Path (Join-Path $nested 'sing-box.exe')) { $installSource = $nested }
+    if (-not (Test-Path (Join-Path $installSource 'sing-box.exe'))) { Write-Error 'sing-box.exe missing after extract'; exit 1 }
+
+    Get-ChildItem $SingboxDir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+    Get-ChildItem $installSource -Force | Move-Item -Destination $SingboxDir -Force
+    Remove-Item $extractTmp -Recurse -Force
+    Get-ChildItem $RuntimeDir -Filter 'sing-box-*.zip' -ErrorAction SilentlyContinue | Remove-Item -Force
     if (-not (Test-Path $SingboxExe)) { Write-Error 'sing-box.exe missing after extract'; exit 1 }
     Set-Content -Path $sentinel -Value $resolved -NoNewline
 }

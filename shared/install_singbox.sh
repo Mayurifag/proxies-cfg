@@ -14,43 +14,53 @@ sentinel="$extract_dir/.version"
 mkdir -p "$extract_dir" "$RUNTIME_DIR"
 
 resolved=$(curl -fsSL --max-time 5 \
-    "https://api.github.com/repos/$SINGBOX_REPO/releases/latest" 2>/dev/null \
-    | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' \
-    | head -n1 || true)
+	"https://api.github.com/repos/$SINGBOX_REPO/releases/latest" 2>/dev/null |
+	sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' |
+	head -n1 || true)
 
 current=""
 [[ -f "$sentinel" ]] && current=$(<"$sentinel")
 
 if [[ -z "$resolved" ]]; then
-    if [[ -x "$SINGBOX_BIN" && -n "$current" ]]; then
-        echo "[install_singbox] github unreachable; using local $current" >&2
-        exit 0
-    fi
-    echo "[install_singbox] github unreachable and no local binary" >&2
-    exit 1
+	if [[ -x "$SINGBOX_BIN" && -n "$current" ]]; then
+		echo "[install_singbox] github unreachable; using local $current" >&2
+		exit 0
+	fi
+	echo "[install_singbox] github unreachable and no local binary" >&2
+	exit 1
 fi
 
 if [[ -x "$SINGBOX_BIN" && "$current" == "$resolved" ]]; then
-    echo "[install_singbox] up to date ($resolved)" >&2
-    exit 0
+	echo "[install_singbox] up to date ($resolved)" >&2
+	exit 0
 fi
 
 if [[ -n "$current" ]]; then
-    echo "[install_singbox] updating $current -> $resolved" >&2
+	echo "[install_singbox] updating $current -> $resolved" >&2
 else
-    echo "[install_singbox] installing $resolved" >&2
+	echo "[install_singbox] installing $resolved" >&2
 fi
-
-rm -rf "${extract_dir:?}"/* "$sentinel"
-rm -f "$RUNTIME_DIR"/sing-box-*.tar.gz
 
 url="https://github.com/$SINGBOX_REPO/releases/download/v$resolved/sing-box-$resolved-$SINGBOX_ARCH.tar.gz"
 tar_path="$RUNTIME_DIR/sing-box-$resolved-$SINGBOX_ARCH.tar.gz"
+extract_tmp="$RUNTIME_DIR/sing-box-$resolved-$SINGBOX_ARCH.extract"
+
+rm -rf "$extract_tmp" "$tar_path.tmp"
 echo "[install_singbox] downloading $url" >&2
 curl -fsSL --retry 3 --retry-delay 2 -o "$tar_path.tmp" "$url"
 mv "$tar_path.tmp" "$tar_path"
-/usr/bin/env tar -xzf "$tar_path" -C "$extract_dir" --strip-components=1
-echo "$resolved" > "$sentinel"
+mkdir -p "$extract_tmp"
+/usr/bin/env tar -xzf "$tar_path" -C "$extract_tmp" --strip-components=1
+[[ -x "$extract_tmp/sing-box" ]] || {
+	echo "[install_singbox] sing-box missing after extract" >&2
+	exit 1
+}
+
+rm -rf "${extract_dir:?}"/* "$sentinel"
+mv "$extract_tmp"/* "$extract_dir"/
+rm -rf "$extract_tmp"
+rm -f "$RUNTIME_DIR"/sing-box-*.tar.gz
+echo "$resolved" >"$sentinel"
 
 [[ "$(uname)" == Darwin ]] && xattr -d com.apple.quarantine "$SINGBOX_BIN" 2>/dev/null || true
 chmod +x "$SINGBOX_BIN"

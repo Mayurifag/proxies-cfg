@@ -63,7 +63,7 @@ IPV6_TEST_ADDR=$(dig +short AAAA "$PROXY_IT_IPV6_TEST_HOST" | head -1)
 	echo "FAIL: $PROXY_IT_IPV6_TEST_HOST has no AAAA" >&2
 	exit 1
 }
-curl -6 -fsSI --resolve "$PROXY_IT_IPV6_TEST_HOST:443:[$IPV6_TEST_ADDR]" --max-time 15 "$PROXY_IT_IPV6_TEST_URL" >/dev/null || {
+curl -6 -fsSI --max-time 15 "$PROXY_IT_IPV6_TEST_URL" >/dev/null || {
 	echo "FAIL: $PROXY_IT_IPV6_TEST_URL unreachable over IPv6" >&2
 	exit 1
 }
