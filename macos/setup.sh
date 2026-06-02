@@ -83,15 +83,30 @@ phase "TUN: $utun"
 
 phase 'install DNS resolver overrides'
 mkdir -p /etc/resolver
-resolver="/etc/resolver/$PROXY_IT_IPV6_TEST_HOST"
-if [[ -f "$resolver" ]] && ! grep -qF '# proxies-cfg' "$resolver"; then
-	phase "  warn: $resolver exists; leaving unchanged"
-else
+while read -r domain; do
+	resolver="/etc/resolver/$domain"
+	if [[ -f "$resolver" ]] && ! grep -qF '# proxies-cfg' "$resolver"; then
+		phase "  warn: $resolver exists; leaving unchanged"
+		continue
+	fi
 	{
 		printf '# proxies-cfg\n'
 		printf 'nameserver %s\n' "$TUN_INET"
 	} >"$resolver"
-fi
+done < <(
+	uv run --quiet python - <<'PY'
+import sys
+
+sys.path.insert(0, "shared")
+from proxies_conf import load
+
+for tag, kinds in load("proxies.conf").items():
+    if tag == "direct":
+        continue
+    for domain in kinds.get("domains", []):
+        print(domain)
+PY
+)
 
 deadline=$(($(date +%s) + 10))
 while (($(date +%s) < deadline)); do

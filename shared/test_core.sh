@@ -69,6 +69,49 @@ curl -6 -fsSI --max-time 15 "$PROXY_IT_IPV6_TEST_URL" >/dev/null || {
 }
 echo "  $PROXY_IT_IPV6_TEST_URL ok"
 
+echo '=== Verify: route precedence ==='
+SINGBOX_CONFIG=${SINGBOX_CONFIG:-$OS_TAG/runtime/config.json}
+read -r POM3_IDX C1V_IDX IPV6_IDX < <(
+	jq -r '
+		.route.rules as $rules |
+		[
+			($rules | to_entries[] | select(.value.domain_suffix?[]? == "pom3.c1vhosting.it" and .value.outbound == "proxy_ru") | .key),
+			($rules | to_entries[] | select(.value.domain_suffix?[]? == "c1vhosting.it" and .value.outbound == "direct") | .key),
+			($rules | to_entries[] | select(.value.ip_version == 6 and .value.outbound == "proxy_it") | .key)
+		] | @tsv
+	' "$SINGBOX_CONFIG"
+)
+[[ -n "$POM3_IDX" && -n "$C1V_IDX" && -n "$IPV6_IDX" ]] || {
+	echo 'FAIL: missing pom3/proxy_ru, c1vhosting/direct, or IPv6/proxy_it rule' >&2
+	exit 1
+}
+((POM3_IDX < C1V_IDX && C1V_IDX < IPV6_IDX)) || {
+	echo "FAIL: bad route order pom3=$POM3_IDX c1vhosting=$C1V_IDX ipv6=$IPV6_IDX" >&2
+	exit 1
+}
+echo "  pom3.c1vhosting.it -> proxy_ru before c1vhosting.it -> direct before IPv6 -> proxy_it"
+
+if [[ "$OS_TAG" == macos ]]; then
+	echo '=== Verify: macOS resolver overrides ==='
+	[[ -f /etc/resolver/pom3.c1vhosting.it ]] || {
+		echo 'FAIL: /etc/resolver/pom3.c1vhosting.it missing' >&2
+		exit 1
+	}
+	grep -qF "nameserver $TUN_INET" /etc/resolver/pom3.c1vhosting.it || {
+		echo 'FAIL: /etc/resolver/pom3.c1vhosting.it does not point at sing-box DNS' >&2
+		exit 1
+	}
+	POM3_FAKEIP=$(dscacheutil -q host -a name pom3.c1vhosting.it | awk '/^(ip_address|ipv6_address):/ {print $2; exit}')
+	case "$POM3_FAKEIP" in
+	172.19.1.* | fc00::*) ;;
+	*)
+		echo "FAIL: pom3.c1vhosting.it did not resolve to fake-IP: $POM3_FAKEIP" >&2
+		exit 1
+		;;
+	esac
+	echo "  pom3.c1vhosting.it resolves via sing-box DNS: $POM3_FAKEIP"
+fi
+
 SSH_TEST_CMD=$(jq -er '.ssh_test_command // empty' "$SECRETS_FILE" 2>/dev/null || true)
 if [[ -n "$SSH_TEST_CMD" ]]; then
 	echo '=== Verify: SSH to deploy host (direct routing) ==='

@@ -12,10 +12,12 @@ for label in "${LABELS[@]}"; do
 	rm -f "$LAUNCH_DAEMON_DIR/$label.plist"
 done
 
-resolver="/etc/resolver/$PROXY_IT_IPV6_TEST_HOST"
-if [[ -f "$resolver" ]] && grep -qF '# proxies-cfg' "$resolver"; then
-	rm -f "$resolver"
-fi
+for resolver in /etc/resolver/*; do
+	[[ -f "$resolver" ]] || continue
+	if grep -qF '# proxies-cfg' "$resolver"; then
+		rm -f "$resolver"
+	fi
+done
 
 pkill -TERM -x sing-box 2>/dev/null || true
 

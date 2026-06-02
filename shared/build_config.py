@@ -140,26 +140,42 @@ def _endpoint_ips(secrets: dict, proxies: dict, parsed: list[dict]) -> list[str]
 
 
 def _route_rules(proxies: dict) -> list[dict]:
-    # `direct` first so VPS hosts / panel domains bypass overlapping
-    # geosite/geoip rules from proxy tags.
-    rules: list[dict] = []
+    # Prefer specific domain suffixes before broader ones, then broad routing.
+    domain_rules: list[tuple[str, str]] = []
+    protocol_rules: list[dict] = []
+    broad_proxy_rules: list[dict] = []
+
     for tag in sorted(proxies, key=lambda t: (t != "direct", t)):
         kinds = proxies[tag]
+
         domains = sorted(set(kinds.get("domains", [])))
-        if domains:
-            rules.append({"domain_suffix": domains, "outbound": tag})
+        domain_rules.extend((domain, tag) for domain in domains)
         protocols = sorted(set(kinds.get("protocols", [])))
         if protocols:
-            rules.append({"protocol": protocols, "outbound": tag})
+            protocol_rules.append({"protocol": protocols, "outbound": tag})
         for ip_version in sorted(set(kinds.get("ip_versions", []))):
             if ip_version not in {"4", "6"}:
                 msg = f"invalid ip_version for {tag}: {ip_version!r}"
                 raise SystemExit(msg)
-            rules.append({"ip_version": int(ip_version), "outbound": tag})
+            broad_proxy_rules.append({"ip_version": int(ip_version), "outbound": tag})
         rs = _geo_tags(kinds)
         if rs:
-            rules.append({"rule_set": rs, "outbound": tag})
-    return rules
+            broad_proxy_rules.append({"rule_set": rs, "outbound": tag})
+
+    domain_rules = sorted(
+        domain_rules,
+        key=lambda item: (
+            -len(item[0].split(".")),
+            -len(item[0]),
+            item[1] != "direct",
+            item,
+        ),
+    )
+    return (
+        [{"domain_suffix": [domain], "outbound": tag} for domain, tag in domain_rules]
+        + protocol_rules
+        + broad_proxy_rules
+    )
 
 
 def _fakeip_dns_rules(proxies: dict) -> list[dict]:
