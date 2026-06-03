@@ -2,11 +2,12 @@
 """Fetch a subscription URL, parse first proxy URI, emit sing-box outbound JSON.
 
 Base64-decode the body, parse the first proxy URI on a line, and emit a
-sing-box-extended outbound JSON dict.
+sing-box-extended outbound or endpoint JSON dict.
 
 Supported schemes:
     hysteria2://password@host:port?...   (alpn=h3 mandatory for QUIC)
     vless://uuid@host:port?type=xhttp&security=reality&...   (alpn=h2 for xhttp)
+    wireguard://private_key@host:port?publickey=peer_public_key&address=cidr[,cidr]
 
 Usage:
     python3 sub_parse.py <sub_url> <tag>
@@ -41,6 +42,19 @@ def fetch_first_uri(sub_url: str) -> str:
 def _query_first(query: dict, key: str, default: str = "") -> str:
     values = query.get(key, [])
     return values[0] if values else default
+
+
+def _query_any(query: dict, keys: tuple[str, ...], default: str = "") -> str:
+    for key in keys:
+        value = _query_first(query, key)
+        if value:
+            return value
+    return default
+
+
+def _query_csv(query: dict, keys: tuple[str, ...]) -> list[str]:
+    value = _query_any(query, keys)
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def parse_hysteria2(uri: str, tag: str) -> dict:
@@ -149,6 +163,60 @@ def parse_vless(uri: str, tag: str) -> dict:
     return out
 
 
+def parse_wireguard(uri: str, tag: str) -> dict:
+    parsed = urllib.parse.urlparse(uri)
+    query = urllib.parse.parse_qs(parsed.query)
+    private_key = urllib.parse.unquote(parsed.username or "") or _query_any(
+        query,
+        ("private_key", "privatekey"),
+    )
+    peer_public_key = _query_any(
+        query,
+        ("peer_public_key", "peerpublickey", "public_key", "publickey"),
+    )
+    address = _query_csv(query, ("local_address", "address"))
+    allowed_ips = _query_csv(query, ("allowed_ips", "allowedips")) or [
+        "0.0.0.0/0",
+        "::/0",
+    ]
+
+    out = {
+        "type": "wireguard",
+        "tag": tag,
+        "address": address,
+        "private_key": private_key,
+        "peers": [
+            {
+                "address": parsed.hostname or "",
+                "port": parsed.port or 51820,
+                "public_key": peer_public_key,
+                "allowed_ips": allowed_ips,
+            },
+        ],
+    }
+
+    pre_shared_key = _query_any(
+        query,
+        ("pre_shared_key", "preshared_key", "psk"),
+    )
+    if pre_shared_key:
+        out["peers"][0]["pre_shared_key"] = pre_shared_key
+
+    reserved = _query_first(query, "reserved")
+    if reserved:
+        out["peers"][0]["reserved"] = [int(part) for part in reserved.split(",")]
+
+    keepalive = _query_first(query, "persistent_keepalive_interval")
+    if keepalive:
+        out["peers"][0]["persistent_keepalive_interval"] = int(keepalive)
+
+    mtu = _query_first(query, "mtu")
+    if mtu:
+        out["mtu"] = int(mtu)
+
+    return out
+
+
 def _ech_to_pem(ech_param: str) -> str:
     raw = base64.b64decode(urllib.parse.unquote(ech_param))
     encoded = base64.b64encode(raw).decode("ascii")
@@ -163,6 +231,7 @@ def _ech_to_pem(ech_param: str) -> str:
 PARSERS = {
     "hysteria2": parse_hysteria2,
     "vless": parse_vless,
+    "wireguard": parse_wireguard,
 }
 
 

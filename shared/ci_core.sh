@@ -16,6 +16,7 @@ ci_core() {
     command -v uv >/dev/null || { echo 'Error: uv required (https://astral.sh/uv).' >&2; exit 1; }
     uv run ruff check shared/
     uv run ruff format --check shared/
+    uv run --quiet python -m unittest discover -s shared -p 'test_*.py'
 
     if is_locked; then
         echo "[$label] proxies.conf locked — skipping plaintext-dependent checks"

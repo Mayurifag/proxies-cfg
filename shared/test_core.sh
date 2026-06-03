@@ -57,60 +57,46 @@ assert_ne 'direct' "$DIRECT" 'proxy_it' "$IT"
 assert_ne 'direct' "$DIRECT" 'proxy_ru' "$RU"
 assert_ne 'proxy_it' "$IT" 'proxy_ru' "$RU"
 
-echo '=== Verify: proxy_it IPv6 routing ==='
-IPV6_TEST_ADDR=$(dig +short AAAA "$PROXY_IT_IPV6_TEST_HOST" | head -1)
+echo "=== Verify: $PROXY_IPV6_IT_NOVNC_TAG IPv6 routing ==="
+IPV6_TEST_URL=$(jq -er --arg tag "$PROXY_IPV6_IT_NOVNC_TAG" '.[$tag].ipv6_test_url' "$SECRETS_FILE")
+IPV6_TEST_HOST=$(jq -ern --arg url "$IPV6_TEST_URL" '$url | sub("^https?://"; "") | split("/")[0] | split(":")[0]')
+IPV6_TEST_ADDR=$(dig +short AAAA "$IPV6_TEST_HOST" | head -1)
 [[ -n "$IPV6_TEST_ADDR" ]] || {
-	echo "FAIL: $PROXY_IT_IPV6_TEST_HOST has no AAAA" >&2
+	echo "FAIL: $PROXY_IPV6_IT_NOVNC_TAG IPv6 test host has no AAAA" >&2
 	exit 1
 }
-curl -6 -fsSI --max-time 15 "$PROXY_IT_IPV6_TEST_URL" >/dev/null || {
-	echo "FAIL: $PROXY_IT_IPV6_TEST_URL unreachable over IPv6" >&2
+curl -6 -fsSI --resolve "$IPV6_TEST_HOST:443:[$IPV6_TEST_ADDR]" --max-time 15 "$IPV6_TEST_URL" >/dev/null || {
+	echo "FAIL: $PROXY_IPV6_IT_NOVNC_TAG IPv6 test URL unreachable" >&2
 	exit 1
 }
-echo "  $PROXY_IT_IPV6_TEST_URL ok"
+echo "  $PROXY_IPV6_IT_NOVNC_TAG IPv6 test URL ok"
+NOVNC_TEST_URL=$(jq -er --arg tag "$PROXY_IPV6_IT_NOVNC_TAG" '.[$tag].novnc_url' "$SECRETS_FILE")
+curl -k -fsS --max-time 15 -o /dev/null "$NOVNC_TEST_URL" || {
+	echo "FAIL: $PROXY_IPV6_IT_NOVNC_TAG noVNC unreachable" >&2
+	exit 1
+}
+echo "  $PROXY_IPV6_IT_NOVNC_TAG noVNC ok"
 
 echo '=== Verify: route precedence ==='
 SINGBOX_CONFIG=${SINGBOX_CONFIG:-$OS_TAG/runtime/config.json}
-read -r POM3_IDX C1V_IDX IPV6_IDX < <(
+read -r C1V_IDX IPV6_IDX < <(
 	jq -r '
 		.route.rules as $rules |
 		[
-			($rules | to_entries[] | select(.value.domain_suffix?[]? == "pom3.c1vhosting.it" and .value.outbound == "proxy_ru") | .key),
-			($rules | to_entries[] | select(.value.domain_suffix?[]? == "c1vhosting.it" and .value.outbound == "direct") | .key),
-			($rules | to_entries[] | select(.value.ip_version == 6 and .value.outbound == "proxy_it") | .key)
+			($rules | to_entries[] | select(.value.domain_suffix?[]? == "c1vhosting.it" and .value.outbound == "direct" and .value.ip_version == 4) | .key),
+			($rules | to_entries[] | select(.value.ip_version == 6 and .value.outbound == $tag) | .key)
 		] | @tsv
-	' "$SINGBOX_CONFIG"
+	' --arg tag "$PROXY_IPV6_IT_NOVNC_TAG" "$SINGBOX_CONFIG"
 )
-[[ -n "$POM3_IDX" && -n "$C1V_IDX" && -n "$IPV6_IDX" ]] || {
-	echo 'FAIL: missing pom3/proxy_ru, c1vhosting/direct, or IPv6/proxy_it rule' >&2
+[[ -n "$C1V_IDX" && -n "$IPV6_IDX" ]] || {
+	echo "FAIL: missing c1vhosting/direct IPv4 or IPv6/$PROXY_IPV6_IT_NOVNC_TAG rule" >&2
 	exit 1
 }
-((POM3_IDX < C1V_IDX && C1V_IDX < IPV6_IDX)) || {
-	echo "FAIL: bad route order pom3=$POM3_IDX c1vhosting=$C1V_IDX ipv6=$IPV6_IDX" >&2
+((C1V_IDX < IPV6_IDX)) || {
+	echo "FAIL: bad route order c1vhosting=$C1V_IDX ipv6=$IPV6_IDX" >&2
 	exit 1
 }
-echo "  pom3.c1vhosting.it -> proxy_ru before c1vhosting.it -> direct before IPv6 -> proxy_it"
-
-if [[ "$OS_TAG" == macos ]]; then
-	echo '=== Verify: macOS resolver overrides ==='
-	[[ -f /etc/resolver/pom3.c1vhosting.it ]] || {
-		echo 'FAIL: /etc/resolver/pom3.c1vhosting.it missing' >&2
-		exit 1
-	}
-	grep -qF "nameserver $TUN_INET" /etc/resolver/pom3.c1vhosting.it || {
-		echo 'FAIL: /etc/resolver/pom3.c1vhosting.it does not point at sing-box DNS' >&2
-		exit 1
-	}
-	POM3_FAKEIP=$(dscacheutil -q host -a name pom3.c1vhosting.it | awk '/^(ip_address|ipv6_address):/ {print $2; exit}')
-	case "$POM3_FAKEIP" in
-	172.19.1.* | fc00::*) ;;
-	*)
-		echo "FAIL: pom3.c1vhosting.it did not resolve to fake-IP: $POM3_FAKEIP" >&2
-		exit 1
-		;;
-	esac
-	echo "  pom3.c1vhosting.it resolves via sing-box DNS: $POM3_FAKEIP"
-fi
+echo "  c1vhosting.it IPv4 -> direct before IPv6 -> $PROXY_IPV6_IT_NOVNC_TAG"
 
 SSH_TEST_CMD=$(jq -er '.ssh_test_command // empty' "$SECRETS_FILE" 2>/dev/null || true)
 if [[ -n "$SSH_TEST_CMD" ]]; then

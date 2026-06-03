@@ -7,9 +7,9 @@ File format (INI-ish, hand-editable):
     value                       # one bare value per line, no leading whitespace
     ...
 
-`<tag>` names a sing-box outbound. The reserved tag `direct` routes via the
-built-in direct outbound (no sub_url needed). Any other tag must have a
-`<tag>.sub_url` entry in secrets.json.
+`<tag>` names a sing-box outbound/endpoint. The reserved tag `direct` routes via
+the built-in direct outbound. Any other tag must have a `<tag>.sub_url` or
+`<tag>.uri` entry in secrets.json.
 
 `domains` entries are matched as **domain suffixes** (apex + all subdomains).
 Empty lines and `#` comments (full-line or trailing inline) are ignored on

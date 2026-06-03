@@ -33,6 +33,22 @@ Check 'unlocked: secrets.json' { Get-Content -Raw $SecretsFile | ConvertFrom-Jso
 Check 'unlocked: proxies.conf' { $a = @((Join-Path $RepoRoot 'shared\proxies_conf.py'), 'tags', $ProxiesConf); Invoke-Python -Arguments $a | Out-Null } 'git-crypt unlock'
 Check 'git-crypt status clean' { $s = & git-crypt status 2>&1; if ($s -match 'NOT ENCRYPTED') { throw 'plaintext staged' } } 'git-crypt status -f'
 
+Section 'consistency'
+Check 'secrets covers proxies tags' {
+    Push-Location $RepoRoot
+    try {
+        & uv run --quiet python -c @"
+import json, sys
+sys.path.insert(0, 'shared')
+from build_config import _missing_outbounds
+from proxies_conf import load
+secrets = json.load(open('secrets.json'))
+sys.exit(1 if _missing_outbounds(load('proxies.conf'), secrets) else 0)
+"@
+        if ($LASTEXITCODE -ne 0) { throw 'missing outbound config' }
+    } finally { Pop-Location }
+} 'add missing <tag>.sub_url or <tag>.uri to secrets.json'
+
 Section 'hooks'
 Check 'pre-commit hook installed' { $h = git config --get core.hooksPath 2>$null; if ($h -ne '.githooks') { throw 'not set' } } 'make install-hooks'
 

@@ -7,14 +7,14 @@ URLs.
 
 - No GUI, no tray app — runs as a system service.
 - Auto-installed in autostart (systemd / LaunchDaemon / Scheduled Task).
-- Two proxy outbounds + direct: Russian-only sites via one, blocked sites via
+- Three proxy routes + direct: Russian-only sites via one, blocked sites via
   another, everything else direct. The `direct` routing tag also catches VPS
   panel domains (suffix match) so the proxy server itself is never tunneled.
-- Proxy outbounds come from **subscription URLs** (one per proxy). Re-fetched
-  on every `setup`.
+- Proxy outbounds come from **subscription URLs** or inline URIs. Subscriptions
+  are re-fetched on every `setup`.
 - runetfreedom geoip + geosite lists, refreshed daily, converted at install time
   to sing-box JSON rule-sets.
-- Currently supports hysteria2 and VLESS/xhttp/Reality.
+- Currently supports hysteria2, VLESS/xhttp/Reality, and WireGuard endpoints.
 - DNS-over-HTTPS to 1.1.1.1 / 8.8.8.8.
 - `secrets.json` (sub URLs, sudo passwords) and `proxies.conf` are
   [git-crypt](https://github.com/AGWA/git-crypt)-encrypted in repo (GPG mode);
@@ -25,11 +25,12 @@ URLs.
 ## Subscription format
 
 Each outbound's `sub_url` returns base64-encoded plaintext containing one or
-more `proxy://...` URIs (one per line). The first URI is parsed.
+more `proxy://...` URIs (one per line). The first URI is parsed. Secrets may
+also use inline `uri` for static configs like WireGuard.
 
-Supported schemes: `hysteria2://`, `vless://`. Both `ws`/`grpc` transports
-recognised; `xhttp` requires the `sing-box-extended` fork which is used in this 
-repo.
+Supported schemes: `hysteria2://`, `vless://`, `wireguard://`. Both `ws`/`grpc`
+transports recognised; `xhttp` requires the `sing-box-extended` fork which is
+used in this repo.
 
 ### Dropped URI fields
 
@@ -96,13 +97,20 @@ make remove-domain domain=kremlin.ru
 make add-domain   # interactive prompt
 ~~~
 
-Routing tags: `proxy_ru`, `proxy_it` (subscription-driven), `direct` (built-in
+Routing tags: `proxy_ru`, `proxy_it`, `proxy_ipv6_it_novnc`, `direct` (built-in
 bypass). All `domains` entries are suffix-matched — `mayurifag.ru` catches
-`mayurifag.ru` and `*.mayurifag.ru`. Edits `proxies.conf` and restarts the
-proxy.
+`mayurifag.ru` and `*.mayurifag.ru`. Edits `proxies.conf` and restarts the proxy.
 
 `[<tag>.ip_versions]` accepts `4` or `6` catch-all routing rules; current IPv6
-traffic is routed through `proxy_it`.
+traffic is routed through `proxy_ipv6_it_novnc`.
+
+When an IPv6 catch-all exists, `direct` domain suffixes apply only to IPv4. This
+lets IPv6-only subdomains, such as provider noVNC hosts, use WireGuard without
+per-domain entries.
+
+Known IPv6-only test/provider domains may still be listed under
+`proxy_ipv6_it_novnc.domains` so macOS resolver overrides and fake-IP DNS make
+browser and curl behavior deterministic.
 
 `[<tag>.protocols]` accepts sing-box sniffed protocol names. Current config
 routes `bittorrent` via `direct`, while HTTP/HTTPS tracker domains still follow
@@ -183,8 +191,8 @@ git push
 
 ## Notes
 
-- DNS prefers IPv4, but `[proxy_it.ip_versions]` routes IPv6 traffic through
-  `proxy_it`.
+- DNS prefers IPv4, but `[proxy_ipv6_it_novnc.ip_versions]` routes IPv6-only
+  sites and other IPv6 traffic through WireGuard.
 - BitTorrent peer traffic is routed direct by `[direct.protocols]`; tracker
   domains are not exempted and still follow normal proxy rules.
 - `twitch.tv` needs proxy for country restriction; CDN stays direct.
