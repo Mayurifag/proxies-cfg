@@ -13,7 +13,11 @@ function Section($name) { Write-Host "`n== $name ==" }
 function Check {
     param([string]$Name, [scriptblock]$Test, [string]$Fix)
     $passed = $false
-    try { $null = & $Test; $passed = $LASTEXITCODE -eq 0 -or $? } catch {}
+    try {
+        $global:LASTEXITCODE = 0
+        $null = & $Test
+        $passed = $? -and $LASTEXITCODE -eq 0
+    } catch {}
     if ($passed) { Write-Host ('  ok    ' + $Name); $script:ok++ }
     else { Write-Host ('  FAIL  ' + $Name + '   → ' + $Fix); $script:fail++ }
 }
@@ -31,7 +35,7 @@ Check 'GPG [E] subkey'    { $r = & gpg --list-secret-keys --with-subkey-fingerpr
 Section 'repo state'
 Check 'unlocked: secrets.json' { Get-Content -Raw $SecretsFile | ConvertFrom-Json | Out-Null } 'git-crypt unlock'
 Check 'unlocked: proxies.conf' { $a = @((Join-Path $RepoRoot 'shared\proxies_conf.py'), 'tags', $ProxiesConf); Invoke-Python -Arguments $a | Out-Null } 'git-crypt unlock'
-Check 'git-crypt status clean' { $s = & git-crypt status 2>&1; if ($s -match 'NOT ENCRYPTED') { throw 'plaintext staged' } } 'git-crypt status -f'
+Check 'git-crypt status clean' { $s = & git-crypt status 2>&1; if ($s -cmatch 'NOT ENCRYPTED') { throw 'plaintext staged' } } 'git-crypt status -f'
 
 Section 'consistency'
 Check 'secrets covers proxies tags' {

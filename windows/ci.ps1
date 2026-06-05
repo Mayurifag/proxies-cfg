@@ -64,7 +64,7 @@ if (-not $locked) {
 
     if (Get-Command git-crypt -ErrorAction SilentlyContinue) {
         $crypt = & git-crypt status 2>&1
-        if ($crypt -match 'NOT ENCRYPTED') {
+        if ($crypt -cmatch 'NOT ENCRYPTED') {
             Write-Host "GIT-CRYPT FAIL: tracked file is staged plaintext. Run 'git-crypt status -f'." -ForegroundColor Red
             $failed++
         }

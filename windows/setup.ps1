@@ -69,13 +69,21 @@ Start-ScheduledTask -TaskName $TaskNameSingbox
 
 Write-Phase 'setup' 'Phase 8: wait for TUN adapter'
 $adapter = $null
-for ($i = 0; $i -lt 20; $i++) {
+$restarts = 0
+for ($i = 0; $i -lt 60; $i++) {
     $adapter = Get-NetAdapter -Name $TunAdapterName -ErrorAction SilentlyContinue
     if ($adapter -and $adapter.Status -eq 'Up') { break }
+    $task = Get-ScheduledTask -TaskName $TaskNameSingbox -ErrorAction SilentlyContinue
+    if ($task -and $task.State -ne 'Running' -and $restarts -lt 2) {
+        $restarts++
+        Start-ScheduledTask -TaskName $TaskNameSingbox
+    }
     Start-Sleep -Seconds 1
 }
-if (-not $adapter) {
-    Write-Error 'TUN adapter not found within 20s'
+if (-not $adapter -or $adapter.Status -ne 'Up') {
+    $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskNameSingbox -ErrorAction SilentlyContinue
+    if ($taskInfo) { Write-Host "[setup] $TaskNameSingbox last result: $($taskInfo.LastTaskResult)" -ForegroundColor Yellow }
+    Write-Error 'TUN adapter not up within 60s'
     Get-NetAdapter | Select-Object Name, InterfaceDescription, Status | Format-Table | Out-String | Write-Host
     exit 1
 }
