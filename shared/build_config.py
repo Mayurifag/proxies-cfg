@@ -216,16 +216,31 @@ def _fakeip_dns_rules(proxies: dict) -> list[dict]:
             for d in kinds.get("domains", [])
         },
     )
-    if not domains:
-        return []
-    return [
+    rule_sets = sorted(
         {
+            f"geosite-{geosite}"
+            for tag, kinds in proxies.items()
+            if tag != "direct"
+            for geosite in kinds.get("geosites", [])
+        },
+    )
+    rules = []
+    if domains:
+        rules.append({
             "domain_suffix": domains,
             "query_type": ["A", "AAAA"],
             "action": "route",
             "server": "fakeip",
-        },
-    ]
+        })
+    if rule_sets:
+        rules.append({
+            "rule_set": rule_sets,
+            "query_type": ["A", "AAAA"],
+            "action": "route",
+            "server": "fakeip",
+        })
+    rules.append({"query_type": ["AAAA"], "action": "reject"})
+    return rules
 
 
 def build(

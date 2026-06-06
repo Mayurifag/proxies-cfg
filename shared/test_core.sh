@@ -79,24 +79,24 @@ echo "  $PROXY_IPV6_IT_NOVNC_TAG noVNC ok"
 
 echo '=== Verify: route precedence ==='
 SINGBOX_CONFIG=${SINGBOX_CONFIG:-$OS_TAG/runtime/config.json}
-read -r C1V_IDX IPV6_IDX < <(
+read -r POM3_IDX C1V_IDX < <(
 	jq -r '
 		.route.rules as $rules |
 		[
-			($rules | to_entries[] | select(.value.domain_suffix?[]? == "c1vhosting.it" and .value.outbound == "direct" and .value.ip_version == 4) | .key),
-			($rules | to_entries[] | select(.value.ip_version == 6 and .value.outbound == $tag) | .key)
+			($rules | to_entries[] | select(.value.domain_suffix?[]? == "pom3.c1vhosting.it" and .value.outbound == $tag) | .key),
+			($rules | to_entries[] | select(.value.domain_suffix?[]? == "c1vhosting.it" and .value.outbound == "direct") | .key)
 		] | @tsv
 	' --arg tag "$PROXY_IPV6_IT_NOVNC_TAG" "$SINGBOX_CONFIG"
 )
-[[ -n "$C1V_IDX" && -n "$IPV6_IDX" ]] || {
-	echo "FAIL: missing c1vhosting/direct IPv4 or IPv6/$PROXY_IPV6_IT_NOVNC_TAG rule" >&2
+[[ -n "$POM3_IDX" && -n "$C1V_IDX" ]] || {
+	echo "FAIL: missing pom3/$PROXY_IPV6_IT_NOVNC_TAG or c1vhosting/direct rule" >&2
 	exit 1
 }
-((C1V_IDX < IPV6_IDX)) || {
-	echo "FAIL: bad route order c1vhosting=$C1V_IDX ipv6=$IPV6_IDX" >&2
+((POM3_IDX < C1V_IDX)) || {
+	echo "FAIL: bad route order pom3=$POM3_IDX c1vhosting=$C1V_IDX" >&2
 	exit 1
 }
-echo "  c1vhosting.it IPv4 -> direct before IPv6 -> $PROXY_IPV6_IT_NOVNC_TAG"
+echo "  pom3.c1vhosting.it -> $PROXY_IPV6_IT_NOVNC_TAG before c1vhosting.it -> direct"
 
 SSH_TEST_CMD=$(jq -er '.ssh_test_command // empty' "$SECRETS_FILE" 2>/dev/null || true)
 if [[ -n "$SSH_TEST_CMD" ]]; then
@@ -150,6 +150,22 @@ RESOLVED=$(eval "$DNS_CHECK_CMD")
 	exit 1
 }
 echo "  checkip.amazonaws.com -> $RESOLVED"
+
+echo '=== Verify: geosite DNS fake-IP ==='
+jq -e '.dns.rules[] | select(.server == "fakeip" and (.rule_set // [] | index("geosite-bestbuy")))' "$SINGBOX_CONFIG" >/dev/null || {
+	echo 'FAIL: geosite-bestbuy missing from DNS fake-IP rules' >&2
+	exit 1
+}
+jq -e '.. | strings | select(. == "bestbuy.com")' "$RULE_SET_DIR/geosite-bestbuy.json" >/dev/null || {
+	echo 'FAIL: geosite-bestbuy rule-set missing bestbuy.com' >&2
+	exit 1
+}
+GEOSITE_REMOTE=$(curl -sS --connect-timeout 15 --max-time 30 -o /dev/null -w '%{remote_ip}' 'https://www.bestbuy.com/' || true)
+[[ "$GEOSITE_REMOTE" == 172.19.1.* || "$GEOSITE_REMOTE" == fc00:* ]] || {
+	echo "FAIL: www.bestbuy.com did not resolve to fake-IP: $GEOSITE_REMOTE" >&2
+	exit 1
+}
+echo "  www.bestbuy.com -> $GEOSITE_REMOTE"
 
 echo '=== Verify: rule-set integrity ==='
 expected=$(

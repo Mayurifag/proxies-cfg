@@ -148,6 +148,26 @@ if ($expected) {
     Write-Result 'rule-set: all non-empty' (-not $emptyFiles) -Detail "empty=$($emptyFiles -join ',')"
 }
 
+Write-Host '=== Verify: geosite DNS fake-IP ===' -ForegroundColor Cyan
+$config = Get-Content $SingboxConfig -Raw | ConvertFrom-Json
+$geositeDnsRule = @($config.dns.rules | Where-Object {
+    $_.server -eq 'fakeip' -and $_.PSObject.Properties['rule_set'] -and ('geosite-bestbuy' -in $_.rule_set)
+})
+Write-Result 'dns: geosite-bestbuy uses fakeip' ($geositeDnsRule.Count -gt 0)
+
+$geositeRuleset = Join-Path $RuleSetDir 'geosite-bestbuy.json'
+$bestbuyInRuleset = $false
+if (Test-Path $geositeRuleset) {
+    $bestbuyInRuleset = (Get-Content $geositeRuleset -Raw) -match 'bestbuy\.com'
+}
+Write-Result 'rule-set: geosite-bestbuy contains bestbuy.com' $bestbuyInRuleset
+
+$geositeRemote = $null
+try {
+    $geositeRemote = (& curl.exe -sS --connect-timeout 15 --max-time 30 -o NUL -w '%{remote_ip}' 'https://www.bestbuy.com/')
+} catch { }
+Write-Result 'dns: www.bestbuy.com resolves to fake-ip' ($geositeRemote -match '^(172\.19\.1\.|fc00:)') -Detail "remote_ip=$geositeRemote"
+
 Write-Host '=== Verify: log scan ===' -ForegroundColor Cyan
 if (Test-Path $SingboxLog) {
     $suspicious = @(Select-String -Path $SingboxLog -Pattern 'WARN|FATAL|panic' -CaseSensitive:$false -ErrorAction SilentlyContinue)

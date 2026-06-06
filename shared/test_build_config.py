@@ -14,12 +14,11 @@ class BuildConfigTest(unittest.TestCase):
 
         assert build_config._missing_outbounds(proxies, secrets) == ["proxy_it"]
 
-    def test_route_rules_keep_specific_ipv6_override_before_direct_parent(self) -> None:
+    def test_route_rules_keep_explicit_novnc_domain_before_direct_parent(self) -> None:
         proxies = {
             "direct": {"domains": ["c1vhosting.it"]},
             "proxy_ipv6_it_novnc": {
                 "domains": ["pom3.c1vhosting.it"],
-                "ip_versions": ["6"],
             },
         }
 
@@ -33,10 +32,54 @@ class BuildConfigTest(unittest.TestCase):
             {
                 "domain_suffix": ["c1vhosting.it"],
                 "outbound": "direct",
-                "ip_version": 4,
             },
-            {"ip_version": 6, "outbound": "proxy_ipv6_it_novnc"},
         ]
+
+    def test_dns_rejects_unmatched_aaaa_for_dual_stack_direct_sites(self) -> None:
+        proxies = {
+            "direct": {},
+            "proxy_ipv6_it_novnc": {"domains": ["ntc.party", "pom3.c1vhosting.it"]},
+        }
+
+        rules = build_config._fakeip_dns_rules(proxies)
+
+        assert rules == [
+            {
+                "domain_suffix": ["ntc.party", "pom3.c1vhosting.it"],
+                "query_type": ["A", "AAAA"],
+                "action": "route",
+                "server": "fakeip",
+            },
+            {"query_type": ["AAAA"], "action": "reject"},
+        ]
+
+    def test_dns_routes_non_direct_geosites_to_fakeip(self) -> None:
+        proxies = {
+            "direct": {},
+            "proxy_it": {"geosites": ["bestbuy"]},
+        }
+
+        rules = build_config._fakeip_dns_rules(proxies)
+
+        assert rules == [
+            {
+                "rule_set": ["geosite-bestbuy"],
+                "query_type": ["A", "AAAA"],
+                "action": "route",
+                "server": "fakeip",
+            },
+            {"query_type": ["AAAA"], "action": "reject"},
+        ]
+
+    def test_explicit_ipv6_domains_do_not_add_ipv6_catch_all(self) -> None:
+        proxies = {
+            "direct": {},
+            "proxy_ipv6_it_novnc": {"domains": ["ntc.party", "pom3.c1vhosting.it"]},
+        }
+
+        rules = build_config._route_rules(proxies)
+
+        assert {"ip_version": 6, "outbound": "proxy_ipv6_it_novnc"} not in rules
 
 
 if __name__ == "__main__":
