@@ -76,7 +76,7 @@ Restore: `sudo cp /etc/pam.d/sudo_local.bak.proxiescfg /etc/pam.d/sudo_local`.
 | `make setup`           | install + start proxy                        |
 | `make teardown`        | stop + remove proxy                          |
 | `make restart`         | teardown + setup                             |
-| `make test`            | full integration cycle                       |
+| `make test`            | ci checks + full integration cycle           |
 | `make status`          | show proxy status                            |
 | `make logs`            | follow proxy log                             |
 | `make flush-dns`       | flush DNS cache                              |

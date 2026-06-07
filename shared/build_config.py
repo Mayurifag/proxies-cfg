@@ -226,19 +226,23 @@ def _fakeip_dns_rules(proxies: dict) -> list[dict]:
     )
     rules = []
     if domains:
-        rules.append({
-            "domain_suffix": domains,
-            "query_type": ["A", "AAAA"],
-            "action": "route",
-            "server": "fakeip",
-        })
+        rules.append(
+            {
+                "domain_suffix": domains,
+                "query_type": ["A", "AAAA"],
+                "action": "route",
+                "server": "fakeip",
+            }
+        )
     if rule_sets:
-        rules.append({
-            "rule_set": rule_sets,
-            "query_type": ["A", "AAAA"],
-            "action": "route",
-            "server": "fakeip",
-        })
+        rules.append(
+            {
+                "rule_set": rule_sets,
+                "query_type": ["A", "AAAA"],
+                "action": "route",
+                "server": "fakeip",
+            }
+        )
     rules.append({"query_type": ["AAAA"], "action": "reject"})
     return rules
 

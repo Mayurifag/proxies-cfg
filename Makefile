@@ -56,7 +56,7 @@ teardown:
 
 restart: teardown setup
 
-test:
+test: ci
 	$(cmd_test)
 
 status:
