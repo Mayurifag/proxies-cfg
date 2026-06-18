@@ -53,7 +53,7 @@ class BuildConfigTest(unittest.TestCase):
             {"query_type": ["AAAA"], "action": "reject"},
         ]
 
-    def test_dns_routes_non_direct_geosites_to_fakeip(self) -> None:
+    def test_dns_does_not_fakeip_geosites(self) -> None:
         proxies = {
             "direct": {},
             "proxy_it": {"geosites": ["bestbuy"]},
@@ -61,15 +61,7 @@ class BuildConfigTest(unittest.TestCase):
 
         rules = build_config._fakeip_dns_rules(proxies)
 
-        assert rules == [
-            {
-                "rule_set": ["geosite-bestbuy"],
-                "query_type": ["A", "AAAA"],
-                "action": "route",
-                "server": "fakeip",
-            },
-            {"query_type": ["AAAA"], "action": "reject"},
-        ]
+        assert rules == [{"query_type": ["AAAA"], "action": "reject"}]
 
     def test_explicit_ipv6_domains_do_not_add_ipv6_catch_all(self) -> None:
         proxies = {

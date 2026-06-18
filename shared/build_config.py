@@ -69,7 +69,7 @@ def _base_config(log_output: str | None = None) -> dict:
                 {"type": "https", "tag": "doh-google", "server": "8.8.8.8"},
             ],
             "rules": [],
-            "final": "doh-cf",
+            "final": "doh-google",
             "strategy": "prefer_ipv4",
         },
         "inbounds": [tun],
@@ -82,7 +82,7 @@ def _base_config(log_output: str | None = None) -> dict:
             ],
             "final": "direct",
             "auto_detect_interface": True,
-            "default_domain_resolver": "doh-cf",
+            "default_domain_resolver": "doh-google",
         },
     }
 
@@ -216,28 +216,11 @@ def _fakeip_dns_rules(proxies: dict) -> list[dict]:
             for d in kinds.get("domains", [])
         },
     )
-    rule_sets = sorted(
-        {
-            f"geosite-{geosite}"
-            for tag, kinds in proxies.items()
-            if tag != "direct"
-            for geosite in kinds.get("geosites", [])
-        },
-    )
     rules = []
     if domains:
         rules.append(
             {
                 "domain_suffix": domains,
-                "query_type": ["A", "AAAA"],
-                "action": "route",
-                "server": "fakeip",
-            }
-        )
-    if rule_sets:
-        rules.append(
-            {
-                "rule_set": rule_sets,
                 "query_type": ["A", "AAAA"],
                 "action": "route",
                 "server": "fakeip",
