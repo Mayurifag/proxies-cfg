@@ -79,6 +79,13 @@ generate_singbox_config() {
 	bash "$GENERATE_CONFIG" >"$SINGBOX_CONFIG"
 }
 
+refresh_rule_sets() {
+	: "${GEODATA_DIR:?}" "${RULE_SET_DIR:?}"
+	[[ -s "$GEODATA_DIR/geosite.dat" && -s "$GEODATA_DIR/geoip.dat" ]] || return 0
+	mkdir -p "$RULE_SET_DIR"
+	uv run --quiet python shared/geo_convert.py "$GEODATA_DIR/geosite.dat" "$GEODATA_DIR/geoip.dat" "$RULE_SET_DIR" --from-proxies-conf "$PROXIES_CONF"
+}
+
 git_pull_if_clean() {
 	[[ -n "${NO_GIT:-}" ]] && return 0
 	local branch default unpushed

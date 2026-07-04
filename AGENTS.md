@@ -2,9 +2,10 @@
 
 ## Hard Rules
 
-- Do not edit `proxies.conf` directly. Use the repo commands instead: `make add-domain domain=<domain> proxy=<tag>` or `make remove-domain domain=<domain>`.
+- Do not edit `proxies.conf` directly. Use the repo commands instead: `make add-domain domain=<domain> proxy=<tag>`, `make add-geosite geosite=<name> proxy=<tag>`, or `make remove-domain domain=<domain>`.
 - Do not hand-edit generated runtime files under `linux/runtime/`, `macos/runtime/`, or `windows/runtime/`, including `config.json`, rule-set JSON, geodata, binaries, and logs.
 - Valid routing tags are documented in `README.md`; do not invent new proxy tags without changing the config-building code and tests.
+- For routing suggestions, prefer geosites/categories over exact domain lists. Suggest exact domains only when no suitable geosite/category exists or the user asks for domain entries.
 
 ## Verification
 

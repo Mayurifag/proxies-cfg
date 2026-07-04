@@ -93,6 +93,7 @@ Restore: `sudo cp /etc/pam.d/sudo_local.bak.proxiescfg /etc/pam.d/sudo_local`.
 ~~~sh
 make add-domain domain=kremlin.ru proxy=proxy_ru
 make add-domain domain=cloud.ru   proxy=direct
+make add-geosite geosite=booking  proxy=proxy_it
 make remove-domain domain=kremlin.ru
 make add-domain   # interactive prompt
 ~~~

@@ -1,4 +1,4 @@
-.PHONY: ci setup teardown restart test status logs flush-dns update-geodata add-domain remove-domain generate-config doctor unlock lock install-hooks
+.PHONY: ci setup teardown restart test status logs flush-dns update-geodata add-domain add-geosite remove-domain generate-config doctor unlock lock install-hooks
 
 # ── platform detection ────────────────────────────────────────────────────────
 ifeq ($(OS),Windows_NT)
@@ -12,6 +12,7 @@ ifeq ($(OS),Windows_NT)
   cmd_flush_dns    := $(PS) windows/flush_dns.ps1
   cmd_geodata      := $(PS) windows/update_geodata.ps1
   cmd_add_domain   := $(PS) windows/add_domain.ps1 $(domain) $(proxy)
+  cmd_add_geosite  := $(PS) windows/add_geosite.ps1 $(geosite) $(proxy)
   cmd_rm_domain    := $(PS) windows/remove_domain.ps1 $(domain)
   cmd_ci           := $(PS) windows/ci.ps1
   cmd_gen_config   := $(PS) windows/generate_config.ps1
@@ -25,6 +26,7 @@ else ifeq ($(shell uname),Darwin)
   cmd_flush_dns    := bash macos/flush_dns.sh
   cmd_geodata      := bash macos/update_geodata.sh
   cmd_add_domain   := bash macos/add_domain.sh $(domain) $(proxy)
+  cmd_add_geosite  := bash macos/add_geosite.sh $(geosite) $(proxy)
   cmd_rm_domain    := bash macos/remove_domain.sh $(domain)
   cmd_ci           := bash macos/ci.sh
   cmd_gen_config   := bash macos/generate_config.sh
@@ -38,6 +40,7 @@ else
   cmd_flush_dns    := bash linux/flush_dns.sh
   cmd_geodata      := bash linux/update_geodata.sh
   cmd_add_domain   := bash linux/add_domain.sh $(domain) $(proxy)
+  cmd_add_geosite  := bash linux/add_geosite.sh $(geosite) $(proxy)
   cmd_rm_domain    := bash linux/remove_domain.sh $(domain)
   cmd_ci           := bash linux/ci.sh
   cmd_gen_config   := bash linux/generate_config.sh
@@ -73,6 +76,9 @@ update-geodata:
 
 add-domain:
 	$(cmd_add_domain)
+
+add-geosite:
+	$(cmd_add_geosite)
 
 remove-domain:
 	$(cmd_rm_domain)

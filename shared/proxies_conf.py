@@ -25,6 +25,10 @@ CLI:
         Add domain to [tag.domains]. Tag must already exist in the file.
         Creates the section if missing. No-op if already present.
 
+    python3 proxies_conf.py add-geosite <tag> <geosite> <path>
+        Add geosite to [tag.geosites]. Tag must already exist in the file.
+        Creates the section if missing. No-op if already present.
+
     python3 proxies_conf.py remove-domain <domain> <path>
         Remove domain from any `.domains` section. Exit 0 even if absent.
 """
@@ -82,19 +86,27 @@ def all_of_kind(data: dict, kind: str) -> list[str]:
     return sorted(out)
 
 
-def _add_domain(path: str, tag: str, domain: str) -> int:
+def add_value(path: str, tag: str, kind: str, value: str) -> int:
     data = load(path)
     if tag not in data:
         print(f"error: tag {tag!r} not in {path}", file=sys.stderr)
         return 1
-    section = data[tag].setdefault("domains", [])
-    if domain in section:
-        print(f"no-op: {domain} already in {tag}")
+    section = data[tag].setdefault(kind, [])
+    if value in section:
+        print(f"no-op: {value} already in {tag}")
         return 0
-    section.append(domain)
+    section.append(value)
     dump(data, path)
-    print(f"added {domain} to {tag}")
+    print(f"added {value} to {tag}.{kind}")
     return 0
+
+
+def add_domain(path: str, tag: str, domain: str) -> int:
+    return add_value(path, tag, "domains", domain)
+
+
+def add_geosite(path: str, tag: str, geosite: str) -> int:
+    return add_value(path, tag, "geosites", geosite.removeprefix("geosite:").lower())
 
 
 def _remove_domain(path: str, domain: str) -> int:
@@ -119,7 +131,9 @@ def main(argv: list[str]) -> int:
             print(t)
         return 0
     if len(argv) == 5 and argv[1] == "add-domain":
-        return _add_domain(argv[4], argv[2], argv[3])
+        return add_domain(argv[4], argv[2], argv[3])
+    if len(argv) == 5 and argv[1] == "add-geosite":
+        return add_geosite(argv[4], argv[2], argv[3])
     if len(argv) == 4 and argv[1] == "remove-domain":
         return _remove_domain(argv[3], argv[2])
     print(__doc__, file=sys.stderr)
