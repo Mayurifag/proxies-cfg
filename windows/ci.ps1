@@ -28,7 +28,7 @@ foreach ($f in Get-ChildItem -Path (Join-Path $RepoRoot 'windows'), (Join-Path $
 foreach ($j in Get-ChildItem -Path $RepoRoot -Filter '*.json' -File -Recurse |
         Where-Object { $_.FullName -notmatch '\\(\.git|v2rayn|runtime|node_modules)\\' }) {
     try {
-        Get-Content $j.FullName -Raw | ConvertFrom-Json | Out-Null
+        Get-Content $j.FullName -Raw | ConvertFrom-Json -AsHashtable | Out-Null
     } catch {
         Write-Host "JSON FAIL: $($j.FullName) - $_" -ForegroundColor Red
         $failed++
