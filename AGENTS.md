@@ -13,6 +13,7 @@
 - Run `make generate-config` after changes that affect config generation.
 - Run `make doctor` after environment, git-crypt, hook, or prerequisite changes.
 - For routing-only requests, prefer the add/remove command output as verification; do not run broad integration tests unless needed.
+- Do not use browser automation for site reachability or routing checks unless CLI tools cannot verify the behavior, a CAPTCHA/login/manual browser step is required, or the user explicitly asks for browser testing.
 
 ## Project Boundaries
 
