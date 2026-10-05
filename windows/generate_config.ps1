@@ -20,6 +20,12 @@ $pyArgs = @(
     '--interface-name', $TunAdapterName,
     '--log-output', $SingboxLog
 )
+$gateway = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
+    Where-Object { $_.NextHop -and $_.NextHop -ne '0.0.0.0' -and $_.InterfaceAlias -ne $TunAdapterName } |
+    Sort-Object RouteMetric |
+    Select-Object -First 1 -ExpandProperty NextHop
+if (-not $gateway) { throw 'No default gateway found for local DNS routing.' }
+$pyArgs += '--local-dns-server', $gateway
 $global:LASTEXITCODE = 0
 Push-Location $RepoRoot
 try {

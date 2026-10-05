@@ -11,5 +11,6 @@ set -euo pipefail
 args=("$PROXIES_CONF" "$(pwd)/$RULE_SET_DIR")
 [[ -n "${INTERFACE_NAME:-}" ]] && args+=(--interface-name "$INTERFACE_NAME")
 [[ -n "${SINGBOX_LOG:-}" ]] && args+=(--log-output "$(pwd)/$SINGBOX_LOG")
+[[ -n "${LOCAL_DNS_SERVER:-}" ]] && args+=(--local-dns-server "$LOCAL_DNS_SERVER")
 
 exec uv run --quiet python shared/build_config.py "${args[@]}" < "$SECRETS_FILE"

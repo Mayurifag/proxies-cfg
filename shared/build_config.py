@@ -3,7 +3,7 @@
 
 Usage:
     cat secrets.json | python3 build_config.py <proxies_conf> <rule_set_dir> \
-        [--interface-name NAME] [--log-output PATH]
+        [--interface-name NAME] [--log-output PATH] [--local-dns-server IP]
 
 Reads proxies.conf for routing source-of-truth, expands rule_set + route.rules,
 fetches each non-direct `<tag>.sub_url` or parses `<tag>.uri` from the secrets
@@ -40,7 +40,9 @@ from proxies_conf import all_of_kind, load
 _AUTO_REDIRECT = sys.platform == "linux"
 
 
-def _base_config(log_output: str | None = None) -> dict:
+def _base_config(
+    log_output: str | None = None, local_dns_server: str | None = None
+) -> dict:
     log = {"level": "warn", "timestamp": True}
     if log_output:
         log["output"] = log_output
@@ -55,19 +57,30 @@ def _base_config(log_output: str | None = None) -> dict:
     }
     if _AUTO_REDIRECT:
         tun["auto_redirect"] = True
+    dns_servers = [
+        {
+            "type": "fakeip",
+            "tag": "fakeip",
+            "inet4_range": "172.19.1.0/24",
+            "inet6_range": "fc00::/18",
+        },
+        {"type": "https", "tag": "doh-cf", "server": "1.1.1.1"},
+        {"type": "https", "tag": "doh-google", "server": "8.8.8.8"},
+    ]
+    if local_dns_server:
+        dns_servers.insert(
+            1,
+            {
+                "type": "udp",
+                "tag": "local",
+                "server": local_dns_server,
+                "detour": "direct",
+            },
+        )
     return {
         "log": log,
         "dns": {
-            "servers": [
-                {
-                    "type": "fakeip",
-                    "tag": "fakeip",
-                    "inet4_range": "172.19.1.0/24",
-                    "inet6_range": "fc00::/18",
-                },
-                {"type": "https", "tag": "doh-cf", "server": "1.1.1.1"},
-                {"type": "https", "tag": "doh-google", "server": "8.8.8.8"},
-            ],
+            "servers": dns_servers,
             "rules": [],
             "final": "doh-google",
             "strategy": "prefer_ipv4",
@@ -230,19 +243,24 @@ def _fakeip_dns_rules(proxies: dict) -> list[dict]:
     return rules
 
 
-def build(
+def build(  # noqa: PLR0913
     proxies_path: str,
     secrets: dict,
     rule_set_dir: str,
     interface_name: str | None = None,
     log_output: str | None = None,
+    local_dns_server: str | None = None,
 ) -> dict:
-    cfg = _base_config(log_output)
+    cfg = _base_config(log_output, local_dns_server)
     if interface_name:
         cfg["inbounds"][0]["interface_name"] = interface_name
 
     proxies = load(proxies_path)
     cfg["dns"]["rules"] = _fakeip_dns_rules(proxies)
+    if local_dns_server:
+        cfg["dns"]["rules"].insert(
+            0, {"domain_suffix": ["home.arpa"], "server": "local"}
+        )
 
     missing = _missing_outbounds(proxies, secrets)
     if missing:
@@ -282,6 +300,7 @@ def main() -> int:
     p.add_argument("rule_set_dir")
     p.add_argument("--interface-name", default=None)
     p.add_argument("--log-output", default=None)
+    p.add_argument("--local-dns-server", default=None)
     args = p.parse_args()
     secrets = json.load(sys.stdin)
     cfg = build(
@@ -290,6 +309,7 @@ def main() -> int:
         args.rule_set_dir,
         args.interface_name,
         args.log_output,
+        args.local_dns_server,
     )
     json.dump(cfg, sys.stdout, indent=2)
     return 0

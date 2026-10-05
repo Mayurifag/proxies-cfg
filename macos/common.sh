@@ -12,11 +12,12 @@ RULE_SET_DIR="$RUNTIME_DIR/rule-sets"
 GEODATA_DIR="$RUNTIME_DIR/geodata"
 SINGBOX_LOG="$RUNTIME_DIR/singbox.log"
 GENERATE_CONFIG="macos/generate_config.sh"
+LOCAL_DNS_SERVER="${LOCAL_DNS_SERVER:-$(route -n get default 2>/dev/null | awk '/gateway:/{print $2; exit}')}"
 
 LAUNCH_DAEMON_DIR=/Library/LaunchDaemons
 LABELS=(com.proxies-cfg.singbox com.proxies-cfg.geodata)
 
-export RULE_SET_DIR GEODATA_DIR SINGBOX_LOG
+export RULE_SET_DIR GEODATA_DIR SINGBOX_LOG LOCAL_DNS_SERVER
 
 ensure_curl_http3() {
     local candidates=(/opt/homebrew/opt/curl/bin/curl /usr/local/opt/curl/bin/curl curl)
