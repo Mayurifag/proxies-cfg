@@ -251,7 +251,13 @@ def _route_rules(proxies: dict, endpoint_ips: list[str] | None = None) -> list[d
 def _fakeip_dns_rules() -> list[dict]:
     # Fake IPv4 keeps browsers from selecting real IPv6 before routing.
     return [
-        {"query_type": ["AAAA"], "action": "reject"},
+        # REFUSED makes musl fail the whole lookup even when A succeeds.
+        {
+            "query_type": ["AAAA"],
+            "action": "predefined",
+            "rcode": "NOERROR",
+            "answer": [],
+        },
         {"query_type": ["A"], "action": "route", "server": "fakeip"},
     ]
 

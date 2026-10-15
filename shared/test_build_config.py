@@ -47,11 +47,16 @@ class BuildConfigTest(unittest.TestCase):
             },
         ]
 
-    def test_dns_uses_fake_ipv4_for_all_sites_and_rejects_aaaa(self) -> None:
+    def test_dns_uses_fake_ipv4_and_returns_nodata_for_aaaa(self) -> None:
         rules = build_config._fakeip_dns_rules()
 
         assert rules == [
-            {"query_type": ["AAAA"], "action": "reject"},
+            {
+                "query_type": ["AAAA"],
+                "action": "predefined",
+                "rcode": "NOERROR",
+                "answer": [],
+            },
             {
                 "query_type": ["A"],
                 "action": "route",
