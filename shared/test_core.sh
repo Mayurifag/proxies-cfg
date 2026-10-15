@@ -151,9 +151,9 @@ RESOLVED=$(eval "$DNS_CHECK_CMD")
 }
 echo "  checkip.amazonaws.com -> $RESOLVED"
 
-echo '=== Verify: geosite DNS bypasses fake-IP ==='
-jq -e '[.dns.rules[] | select(.server == "fakeip" and (.rule_set // [] | index("geosite-bestbuy")))] | length == 0' "$SINGBOX_CONFIG" >/dev/null || {
-	echo 'FAIL: geosite-bestbuy unexpectedly uses DNS fake-IP' >&2
+echo '=== Verify: DNS uses fake IPv4 before address-family routing ==='
+jq -e '[.dns.rules[] | select(.server == "fakeip" and (.query_type | index("A")) and (has("domain_suffix") | not) and (has("rule_set") | not))] | length > 0' "$SINGBOX_CONFIG" >/dev/null || {
+	echo 'FAIL: global fake IPv4 DNS rule missing' >&2
 	exit 1
 }
 jq -e '.. | strings | select(. == "bestbuy.com")' "$RULE_SET_DIR/geosite-bestbuy.json" >/dev/null || {
@@ -161,11 +161,11 @@ jq -e '.. | strings | select(. == "bestbuy.com")' "$RULE_SET_DIR/geosite-bestbuy
 	exit 1
 }
 GEOSITE_REMOTE=$(curl -sS --connect-timeout 15 --max-time 30 -o /dev/null -w '%{remote_ip}' 'https://www.bestbuy.com/' || true)
-[[ -n "$GEOSITE_REMOTE" && "$GEOSITE_REMOTE" != 172.19.1.* && "$GEOSITE_REMOTE" != fc00:* ]] || {
-	echo "FAIL: www.bestbuy.com did not resolve to a public IP: $GEOSITE_REMOTE" >&2
+[[ "$GEOSITE_REMOTE" == 198.18.* || "$GEOSITE_REMOTE" == 198.19.* ]] || {
+	echo "FAIL: www.bestbuy.com did not resolve to fake IPv4: $GEOSITE_REMOTE" >&2
 	exit 1
 }
-echo "  www.bestbuy.com -> public $GEOSITE_REMOTE"
+echo "  www.bestbuy.com -> fake IPv4 $GEOSITE_REMOTE"
 
 echo '=== Verify: rule-set integrity ==='
 expected=$(

@@ -61,7 +61,7 @@ def _base_config(
         {
             "type": "fakeip",
             "tag": "fakeip",
-            "inet4_range": "172.19.1.0/24",
+            "inet4_range": "198.18.0.0/15",
             "inet6_range": "fc00::/18",
         },
         {"type": "https", "tag": "doh-cf", "server": "1.1.1.1"},
@@ -174,7 +174,7 @@ def _endpoint_ips(
     return sorted(ips)
 
 
-def _route_rules(proxies: dict) -> list[dict]:
+def _route_rules(proxies: dict, endpoint_ips: list[str] | None = None) -> list[dict]:
     # Prefer specific domain suffixes before broader ones, then broad routing.
     direct_ipv4_only = any(
         tag != "direct" and "6" in kinds.get("ip_versions", [])
@@ -182,6 +182,7 @@ def _route_rules(proxies: dict) -> list[dict]:
     )
     domain_rules: list[tuple[str, str, int | None]] = []
     protocol_rules: list[dict] = []
+    geosite_rules: list[dict] = []
     broad_proxy_rules: list[dict] = []
 
     for tag in sorted(proxies, key=lambda t: (t != "direct", t)):
@@ -198,9 +199,10 @@ def _route_rules(proxies: dict) -> list[dict]:
                 msg = f"invalid ip_version for {tag}: {ip_version!r}"
                 raise SystemExit(msg)
             broad_proxy_rules.append({"ip_version": int(ip_version), "outbound": tag})
-        rs = _geo_tags(kinds)
-        if rs:
-            broad_proxy_rules.append({"rule_set": rs, "outbound": tag})
+        for kind, rules in (("geosites", geosite_rules), ("geoips", broad_proxy_rules)):
+            rs = _geo_tags({kind: kinds.get(kind, [])})
+            if rs:
+                rules.append({"rule_set": rs, "outbound": tag})
 
     domain_rules = sorted(
         domain_rules,
@@ -217,30 +219,41 @@ def _route_rules(proxies: dict) -> list[dict]:
         if ip_version:
             rule["ip_version"] = ip_version
         domain_route_rules.append(rule)
-    return domain_route_rules + protocol_rules + broad_proxy_rules
-
-
-def _fakeip_dns_rules(proxies: dict) -> list[dict]:
-    domains = sorted(
+    # Resolve real addresses before IP rules; discard AAAA whenever A exists.
+    resolve_rules = [
+        {"action": "resolve", "server": "doh-google", "strategy": "prefer_ipv4"},
         {
-            d
-            for tag, kinds in proxies.items()
-            if tag != "direct"
-            for d in kinds.get("domains", [])
+            "ip_cidr": ["0.0.0.0/0"],
+            "action": "resolve",
+            "server": "doh-google",
+            "strategy": "ipv4_only",
         },
-    )
-    rules = []
-    if domains:
-        rules.append(
-            {
-                "domain_suffix": domains,
-                "query_type": ["A", "AAAA"],
-                "action": "route",
-                "server": "fakeip",
-            }
+    ]
+    if "proxy_ipv6_it_novnc" in proxies:
+        broad_proxy_rules.append(
+            {"ip_cidr": ["::/0"], "outbound": "proxy_ipv6_it_novnc"}
         )
-    rules.append({"query_type": ["AAAA"], "action": "reject"})
-    return rules
+    # Bypass provider endpoints before and after FakeIP resolution.
+    endpoint_rules = (
+        [{"ip_cidr": endpoint_ips, "outbound": "direct"}] if endpoint_ips else []
+    )
+    return (
+        endpoint_rules
+        + domain_route_rules
+        + protocol_rules
+        + geosite_rules
+        + resolve_rules
+        + endpoint_rules
+        + broad_proxy_rules
+    )
+
+
+def _fakeip_dns_rules() -> list[dict]:
+    # Fake IPv4 keeps browsers from selecting real IPv6 before routing.
+    return [
+        {"query_type": ["AAAA"], "action": "reject"},
+        {"query_type": ["A"], "action": "route", "server": "fakeip"},
+    ]
 
 
 def build(  # noqa: PLR0913
@@ -252,11 +265,18 @@ def build(  # noqa: PLR0913
     local_dns_server: str | None = None,
 ) -> dict:
     cfg = _base_config(log_output, local_dns_server)
+    cfg["experimental"] = {
+        "cache_file": {
+            "enabled": True,
+            "path": str(Path(rule_set_dir).parent / "cache.db"),
+            "store_fakeip": True,
+        }
+    }
     if interface_name:
         cfg["inbounds"][0]["interface_name"] = interface_name
 
     proxies = load(proxies_path)
-    cfg["dns"]["rules"] = _fakeip_dns_rules(proxies)
+    cfg["dns"]["rules"] = _fakeip_dns_rules()
     if local_dns_server:
         cfg["dns"]["rules"].insert(
             0, {"domain_suffix": ["home.arpa"], "server": "local"}
@@ -282,9 +302,7 @@ def build(  # noqa: PLR0913
 
     parsed = [_proxy(secrets[tag], tag) for tag in sorted(proxies) if tag != "direct"]
     endpoint_ips = _endpoint_ips(secrets, proxies, parsed)
-    if endpoint_ips:
-        cfg["route"]["rules"].append({"ip_cidr": endpoint_ips, "outbound": "direct"})
-    cfg["route"]["rules"].extend(_route_rules(proxies))
+    cfg["route"]["rules"].extend(_route_rules(proxies, endpoint_ips))
     endpoints = [proxy for proxy in parsed if proxy["type"] == "wireguard"]
     outbounds = [proxy for proxy in parsed if proxy["type"] != "wireguard"]
     if endpoints:

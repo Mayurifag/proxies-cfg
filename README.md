@@ -102,16 +102,23 @@ Routing tags: `proxy_ru`, `proxy_it`, `proxy_ipv6_it_novnc`, `direct` (built-in
 bypass). All `domains` entries are suffix-matched — `mayurifag.ru` catches
 `mayurifag.ru` and `*.mayurifag.ru`. Edits `proxies.conf` and restarts the proxy.
 
-`[<tag>.ip_versions]` accepts `4` or `6` catch-all routing rules; current IPv6
-traffic is routed through `proxy_ipv6_it_novnc`.
+DNS returns synthetic IPv4 addresses so sing-box, not the browser, selects the
+real address family. For sites without an explicit domain/protocol route,
+sing-box uses only IPv4 when A records exist. IPv6-only sites fall back to
+`proxy_ipv6_it_novnc` after category/geoip rules. IPv4 connection failure does
+not trigger IPv6 fallback. Browser Secure DNS can bypass this policy.
+Fake-IP mappings persist in the platform runtime directory across restarts.
+
+`[<tag>.ip_versions]` accepts `4` or `6` catch-all routing rules. These match
+the incoming address family, not the resolved addresses; they are not needed
+for the IPv6-only fallback.
 
 When an IPv6 catch-all exists, `direct` domain suffixes apply only to IPv4. This
 lets IPv6-only subdomains, such as provider noVNC hosts, use WireGuard without
 per-domain entries.
 
 Known IPv6-only test/provider domains may still be listed under
-`proxy_ipv6_it_novnc.domains` so macOS resolver overrides and fake-IP DNS make
-browser and curl behavior deterministic.
+`proxy_ipv6_it_novnc.domains` to override parent-domain direct rules.
 
 `[<tag>.protocols]` accepts sing-box sniffed protocol names. Current config
 routes `bittorrent` via `direct`, while HTTP/HTTPS tracker domains still follow
@@ -192,8 +199,8 @@ git push
 
 ## Notes
 
-- DNS prefers IPv4, but `[proxy_ipv6_it_novnc.ip_versions]` routes IPv6-only
-  sites and other IPv6 traffic through WireGuard.
+- DNS exposes synthetic IPv4; routing uses real IPv4 when available and sends
+  otherwise-unmatched IPv6-only sites through WireGuard.
 - BitTorrent peer traffic is routed direct by `[direct.protocols]`; tracker
   domains are not exempted and still follow normal proxy rules.
 - `twitch.tv` needs proxy for country restriction; CDN stays direct.
