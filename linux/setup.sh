@@ -6,6 +6,11 @@ source linux/common.sh
 
 assert_root "$@"
 
+command -v uv >/dev/null || {
+	echo 'Error: uv required (https://astral.sh/uv).' >&2
+	exit 1
+}
+
 systemd_quote() {
 	local s="$1"
 	s=${s//%/%%}
@@ -41,7 +46,10 @@ echo '[setup] validate config'
 echo "[setup] install systemd unit ($SERVICE_NAME)"
 SINGBOX_BIN_ABS=$(systemd_quote "$(pwd)/$SINGBOX_BIN")
 SINGBOX_CONFIG_ABS=$(systemd_quote "$(pwd)/$SINGBOX_CONFIG")
-REPO_ROOT_SYSTEMD=$(systemd_quote "$(pwd)")
+# WorkingDirectory does not unquote its value; only escape systemd specifiers.
+REPO_ROOT_SYSTEMD=${PWD//%/%%}
+# shortcut: versioned tool paths are captured; regenerate the unit after tool upgrades.
+GEODATA_PATH_SYSTEMD=$(systemd_quote "PATH=$PATH")
 tee "/etc/systemd/system/$SERVICE_NAME.service" >/dev/null <<EOF
 [Unit]
 Description=proxies-cfg sing-box-extended TUN proxy
@@ -70,6 +78,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=$REPO_ROOT_SYSTEMD
+Environment=$GEODATA_PATH_SYSTEMD
 ExecStart=/bin/bash linux/update_geodata.sh
 EOF
 

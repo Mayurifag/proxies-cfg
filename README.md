@@ -44,11 +44,11 @@ All three are anti-detection polish, not auth — connections still succeed.
 
 ## Prerequisites
 
-| OS      | Required                                              |
-| ------- | ----------------------------------------------------- |
-| Linux   | `git-crypt`, `gnupg`, `jq`, `uv`, `curl`, `systemd`   |
+| OS      | Required                                                 |
+| ------- | -------------------------------------------------------- |
+| Linux   | `git-crypt`, `gnupg`, `jq`, `uv`, `curl`, `systemd`      |
 | macOS   | `git-crypt`, `gnupg`, `jq`, `uv`, brew `curl` for HTTP/3 |
-| Windows | `git-crypt`, `gnupg`, `jq`, `uv`, `make`              |
+| Windows | `git-crypt`, `gnupg`, `jq`, `uv`, `make`                 |
 
 `uv` provides the Python interpreter (3.14, pinned via `.python-version`)
 plus dev tools (ruff) via `pyproject.toml` + `uv.lock`. No system Python
