@@ -127,7 +127,7 @@ normal domain/geosite/geoip rules and can go through a proxy.
 ## Linux Docker And UFW
 
 Linux setup installs tagged rules in `/etc/ufw/before.rules` when UFW is installed.
-These allow only redirected HTTPS from `docker0` and `br-*` Docker bridges to the
+These IPv4 rules allow only redirected HTTPS from `docker0` and `br-*` bridges to the
 bridge's local address, without opening ordinary host listeners or accepting LAN/WAN
 input. The rules do not depend on sing-box's changing redirect port. Teardown removes them.
 For an existing installation, `make linux-firewall` applies the rules without
