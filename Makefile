@@ -1,4 +1,4 @@
-.PHONY: ci setup teardown restart test status logs flush-dns update-geodata add-domain add-geosite remove-domain generate-config doctor unlock lock install-hooks
+.PHONY: ci setup teardown restart test status logs flush-dns update-geodata add-domain add-geosite remove-domain generate-config doctor unlock lock install-hooks linux-firewall
 
 # ── platform detection ────────────────────────────────────────────────────────
 ifeq ($(OS),Windows_NT)
@@ -88,6 +88,9 @@ generate-config:
 
 doctor:
 	$(cmd_doctor)
+
+linux-firewall:
+	bash linux/ufw.sh install
 
 unlock:
 	git-crypt unlock

@@ -43,6 +43,8 @@ generate_singbox_config
 echo '[setup] validate config'
 "$SINGBOX_BIN" check -c "$SINGBOX_CONFIG"
 
+bash linux/ufw.sh install
+
 echo "[setup] install systemd unit ($SERVICE_NAME)"
 SINGBOX_BIN_ABS=$(systemd_quote "$(pwd)/$SINGBOX_BIN")
 SINGBOX_CONFIG_ABS=$(systemd_quote "$(pwd)/$SINGBOX_CONFIG")

@@ -1,0 +1,2 @@
+-A ufw-before-input -i docker0 -p tcp -m addrtype --dst-type LOCAL --limit-iface-in -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdstport 443 -m comment --comment proxies-cfg-docker-https -j ACCEPT
+-A ufw-before-input -i br-+ -p tcp -m addrtype --dst-type LOCAL --limit-iface-in -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdstport 443 -m comment --comment proxies-cfg-docker-https -j ACCEPT
