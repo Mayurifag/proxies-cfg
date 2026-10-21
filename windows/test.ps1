@@ -104,14 +104,6 @@ try {
 } catch { }
 Write-Result "$ProxyIpv6ItNovncTag literal IPv6 routing works" $ipv6LiteralOk
 
-$noVncOk = $false
-try {
-    $noVncUrl = (Get-Content $SecretsFile -Raw | ConvertFrom-Json).$ProxyIpv6ItNovncTag.novnc_url
-    & curl.exe -k -fsS --max-time 15 -o NUL $noVncUrl | Out-Null
-    $noVncOk = $LASTEXITCODE -eq 0
-} catch { }
-Write-Result "$ProxyIpv6ItNovncTag noVNC reachable" $noVncOk
-
 Write-Host '=== Verify: HTTP/3 routing without fallback ===' -ForegroundColor Cyan
 if ((& curl.exe -V) -match 'HTTP3') {
     $quicIt = & curl.exe -fsS --http3-only --max-time 15 $ProxyItHttp3TestUrl

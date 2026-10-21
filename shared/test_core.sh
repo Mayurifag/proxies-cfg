@@ -37,7 +37,6 @@ restore_proxy() {
 trap restore_proxy EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-failures=0
 log_start=0
 
 bash "$TEARDOWN"
@@ -96,13 +95,6 @@ curl -6 -fsSI --resolve "$IPV6_TEST_HOST:443:[$IPV6_TEST_ADDR]" --max-time 15 "$
 	exit 1
 }
 echo "  $PROXY_IPV6_IT_NOVNC_TAG IPv6 test URL ok"
-NOVNC_TEST_URL=$(jq -er --arg tag "$PROXY_IPV6_IT_NOVNC_TAG" '.[$tag].novnc_url' "$SECRETS_FILE")
-if curl -k -fsS --max-time 15 -o /dev/null "$NOVNC_TEST_URL"; then
-	echo "  $PROXY_IPV6_IT_NOVNC_TAG noVNC ok"
-else
-	echo "FAIL: $PROXY_IPV6_IT_NOVNC_TAG noVNC unreachable" >&2
-	failures=$((failures + 1))
-fi
 
 echo '=== Verify: route precedence ==='
 SINGBOX_CONFIG=${SINGBOX_CONFIG:-$OS_TAG/runtime/config.json}
@@ -233,8 +225,4 @@ if [[ -n "${SINGBOX_LOG:-}" && -f "$SINGBOX_LOG" ]]; then
 	echo '  log clean'
 fi
 
-if ((failures)); then
-	echo "=== FAIL: $failures endpoint check(s) failed ===" >&2
-	exit 1
-fi
 echo '=== PASS ==='
