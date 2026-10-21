@@ -10,14 +10,16 @@ phase() { echo "[$(date '+%H:%M:%S')] [setup] $*" >&2; }
 
 render_plist() {
 	local src="$1" dst="$2" root="$3"
-	uv run --quiet python - "$src" "$dst" "$root" <<'PY'
+	uv run --quiet python - "$src" "$dst" "$root" "$PATH" <<'PY'
 from pathlib import Path
 from sys import argv
 from xml.sax.saxutils import escape
 
-src, dst, root = argv[1:]
+src, dst, root, path = argv[1:]
 Path(dst).write_text(
-    Path(src).read_text(encoding="utf-8").replace("__REPO_ROOT__", escape(root)),
+    Path(src).read_text(encoding="utf-8")
+    .replace("__REPO_ROOT__", escape(root))
+    .replace("__PATH__", escape(path)),
     encoding="utf-8",
 )
 PY

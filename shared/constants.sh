@@ -24,6 +24,7 @@ GEOSITE_URL="https://raw.githubusercontent.com/runetfreedom/russia-blocked-geosi
 
 DIRECT_TEST_URL="https://checkip.amazonaws.com"
 PROXY_IT_TEST_URL="https://api.ipify.org"
+PROXY_IT_HTTP3_TEST_URL="https://meduza.io/cdn-cgi/trace"
 PROXY_IPV6_IT_NOVNC_TAG="proxy_ipv6_it_novnc"
 PROXY_RU_TEST_URL="https://ident.me"
 ALL_TEST_URLS=("$DIRECT_TEST_URL" "$PROXY_IT_TEST_URL" "$PROXY_RU_TEST_URL")

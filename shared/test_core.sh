@@ -21,6 +21,25 @@ assert_ne() { [[ "$2" != "$4" ]] || {
 	exit 1
 }; }
 
+restore_needed=${PROXY_WAS_RUNNING:-0}
+restore_proxy() {
+	local status=$?
+	trap - EXIT INT TERM
+	if ((restore_needed)); then
+		echo 'Restoring the previously running proxy after interrupted or failed test setup.' >&2
+		if ! bash "$SETUP"; then
+			echo 'FAIL: proxy restoration failed; run make setup.' >&2
+			((status != 0)) || status=1
+		fi
+	fi
+	exit "$status"
+}
+trap restore_proxy EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+failures=0
+log_start=0
+
 bash "$TEARDOWN"
 
 echo '=== Verify: proxy down ==='
@@ -45,6 +64,8 @@ uv run --quiet python shared/proxies_conf.py tags proxies.conf >/dev/null || {
 
 echo '=== Setup ==='
 bash "$SETUP"
+restore_needed=0
+[[ ! -f "${SINGBOX_LOG:-}" ]] || log_start=$(wc -c <"$SINGBOX_LOG")
 
 echo '=== Verify: outbounds distinct ==='
 DIRECT=$(check_ip "$DIRECT_TEST_URL")
@@ -59,8 +80,13 @@ assert_ne 'proxy_it' "$IT" 'proxy_ru' "$RU"
 
 echo "=== Verify: $PROXY_IPV6_IT_NOVNC_TAG IPv6 routing ==="
 IPV6_TEST_URL=$(jq -er --arg tag "$PROXY_IPV6_IT_NOVNC_TAG" '.[$tag].ipv6_test_url' "$SECRETS_FILE")
+curl -fsSI --max-time 15 "$IPV6_TEST_URL" >/dev/null
+echo "  $PROXY_IPV6_IT_NOVNC_TAG normal hostname resolution ok"
 IPV6_TEST_HOST=$(jq -ern --arg url "$IPV6_TEST_URL" '$url | sub("^https?://"; "") | split("/")[0] | split(":")[0]')
-IPV6_TEST_ADDR=$(dig +short AAAA "$IPV6_TEST_HOST" | head -1)
+# The proxy intentionally returns NODATA for AAAA; query real DNS over HTTPS.
+IPV6_TEST_ADDR=$(curl -fsS --max-time 15 -H 'accept: application/dns-json' \
+	"https://cloudflare-dns.com/dns-query?name=$IPV6_TEST_HOST&type=AAAA" |
+	jq -r 'first(.Answer[]? | select(.type == 28) | .data) // empty')
 [[ -n "$IPV6_TEST_ADDR" ]] || {
 	echo "FAIL: $PROXY_IPV6_IT_NOVNC_TAG IPv6 test host has no AAAA" >&2
 	exit 1
@@ -71,11 +97,12 @@ curl -6 -fsSI --resolve "$IPV6_TEST_HOST:443:[$IPV6_TEST_ADDR]" --max-time 15 "$
 }
 echo "  $PROXY_IPV6_IT_NOVNC_TAG IPv6 test URL ok"
 NOVNC_TEST_URL=$(jq -er --arg tag "$PROXY_IPV6_IT_NOVNC_TAG" '.[$tag].novnc_url' "$SECRETS_FILE")
-curl -k -fsS --max-time 15 -o /dev/null "$NOVNC_TEST_URL" || {
+if curl -k -fsS --max-time 15 -o /dev/null "$NOVNC_TEST_URL"; then
+	echo "  $PROXY_IPV6_IT_NOVNC_TAG noVNC ok"
+else
 	echo "FAIL: $PROXY_IPV6_IT_NOVNC_TAG noVNC unreachable" >&2
-	exit 1
-}
-echo "  $PROXY_IPV6_IT_NOVNC_TAG noVNC ok"
+	failures=$((failures + 1))
+fi
 
 echo '=== Verify: route precedence ==='
 SINGBOX_CONFIG=${SINGBOX_CONFIG:-$OS_TAG/runtime/config.json}
@@ -111,19 +138,19 @@ fi
 
 echo '=== Verify: QUIC routing ==='
 if "$CURL_HTTP3" --http3 -V >/dev/null 2>&1; then
-	QUIC_IT=$("$CURL_HTTP3" -s --http3 --max-time 10 "$PROXY_IT_TEST_URL" | tr -d '[:space:]')
-	QUIC_RU=$("$CURL_HTTP3" -s --http3 --max-time 10 "$PROXY_RU_TEST_URL" | tr -d '[:space:]')
-	assert_nonempty 'api.ipify.org QUIC' "$QUIC_IT"
+	QUIC_IT=$("$CURL_HTTP3" -fsS --http3-only --max-time 15 "$PROXY_IT_HTTP3_TEST_URL" | awk -F= '$1 == "ip" {print $2}')
+	QUIC_RU=$("$CURL_HTTP3" -fsS --http3-only --max-time 15 "$PROXY_RU_TEST_URL" | tr -d '[:space:]')
+	assert_nonempty 'meduza.io HTTP/3' "$QUIC_IT"
 	assert_nonempty 'ident.me QUIC' "$QUIC_RU"
 	[[ "$QUIC_IT" == "$IT" ]] || {
-		echo "FAIL: QUIC proxy_it ($QUIC_IT) != TLS ($IT)" >&2
+		echo "FAIL: HTTP/3 proxy_it ($QUIC_IT) != TLS ($IT)" >&2
 		exit 1
 	}
 	[[ "$QUIC_RU" == "$RU" ]] || {
 		echo "FAIL: QUIC proxy_ru ($QUIC_RU) != TLS ($RU)" >&2
 		exit 1
 	}
-	echo "  QUIC matches TLS for both proxies"
+	echo "  HTTP/3 confirmed without fallback; exits match TLS for both proxies"
 else
 	echo "  QUIC tests skipped ($CURL_HTTP3 lacks --http3)"
 fi
@@ -196,7 +223,8 @@ echo "  $(echo "$expected" | wc -l | tr -d ' ') rule-sets match proxies.conf"
 
 if [[ -n "${SINGBOX_LOG:-}" && -f "$SINGBOX_LOG" ]]; then
 	echo '=== Verify: log scan ==='
-	suspicious=$(grep -E -i 'WARN|FATAL|panic' "$SINGBOX_LOG" || true)
+	(($(wc -c <"$SINGBOX_LOG") >= log_start)) || log_start=0
+	suspicious=$(tail -c +$((log_start + 1)) "$SINGBOX_LOG" | grep -E -i 'WARN|ERROR|FATAL|panic' || true)
 	[[ -z "$suspicious" ]] || {
 		echo "FAIL: log issues:" >&2
 		echo "$suspicious" >&2
@@ -205,4 +233,8 @@ if [[ -n "${SINGBOX_LOG:-}" && -f "$SINGBOX_LOG" ]]; then
 	echo '  log clean'
 fi
 
+if ((failures)); then
+	echo "=== FAIL: $failures endpoint check(s) failed ===" >&2
+	exit 1
+fi
 echo '=== PASS ==='

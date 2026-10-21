@@ -183,6 +183,7 @@ def parse_wireguard(uri: str, tag: str) -> dict:
     out = {
         "type": "wireguard",
         "tag": tag,
+        "mtu": int(_query_first(query, "mtu", "1280")),
         "address": address,
         "private_key": private_key,
         "peers": [
@@ -209,10 +210,6 @@ def parse_wireguard(uri: str, tag: str) -> dict:
     keepalive = _query_first(query, "persistent_keepalive_interval")
     if keepalive:
         out["peers"][0]["persistent_keepalive_interval"] = int(keepalive)
-
-    mtu = _query_first(query, "mtu")
-    if mtu:
-        out["mtu"] = int(mtu)
 
     return out
 

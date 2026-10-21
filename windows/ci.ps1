@@ -43,6 +43,8 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 if ($LASTEXITCODE -ne 0) { $failed++ }
 & uv run ruff format --check (Join-Path $RepoRoot 'shared')
 if ($LASTEXITCODE -ne 0) { $failed++ }
+& uv run --quiet python -m unittest discover -s (Join-Path $RepoRoot 'shared') -p 'test_*.py'
+if ($LASTEXITCODE -ne 0) { $failed++ }
 
 $locked = $false
 if (Test-Path $ProxiesConf) {

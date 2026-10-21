@@ -34,21 +34,36 @@ function Reset-ConnectionPool {
     }
 }
 
-Write-Host '=== Phase: teardown ===' -ForegroundColor Cyan
-& "$PSScriptRoot\teardown.ps1"
+$taskBeforeTest = Get-ScheduledTask -TaskName $TaskNameSingbox -ErrorAction SilentlyContinue
+$restoreNeeded = $taskBeforeTest -and $taskBeforeTest.State -eq 'Running'
+try {
+    Write-Host '=== Phase: teardown ===' -ForegroundColor Cyan
+    & "$PSScriptRoot\teardown.ps1"
+    if ($LASTEXITCODE -ne 0) { throw 'Proxy teardown failed.' }
+    Reset-ConnectionPool
+
+    Write-Host '=== Verify: proxy down ===' -ForegroundColor Cyan
+    $d = Test-Outbound $DirectTestUrl
+    $i = Test-Outbound $ProxyItTestUrl
+    $r = Test-Outbound $ProxyRuTestUrl
+    Write-Result 'direct (checkip) non-empty' ([bool]$d)
+    if ($d -and $i) { Write-Result 'eth0 == checkip (proxy down)'  ($i -eq $d) -Detail "eth0=$i checkip=$d" }
+    if ($d -and $r) { Write-Result 'ident == checkip (proxy down)' ($r -eq $d) -Detail "ident=$r checkip=$d" }
+
+    Write-Host '=== Phase: setup ===' -ForegroundColor Cyan
+    & "$PSScriptRoot\setup.ps1"
+    if ($LASTEXITCODE -ne 0) { throw 'Proxy setup failed.' }
+    $restoreNeeded = $false
+} finally {
+    if ($restoreNeeded) {
+        Write-Warning 'Restoring the previously running proxy after failed or interrupted test setup.'
+        & "$PSScriptRoot\setup.ps1"
+        if ($LASTEXITCODE -ne 0) { throw 'Proxy restoration failed; run make setup.' }
+    }
+}
 Reset-ConnectionPool
 
-Write-Host '=== Verify: proxy down ===' -ForegroundColor Cyan
-$d = Test-Outbound $DirectTestUrl
-$i = Test-Outbound $ProxyItTestUrl
-$r = Test-Outbound $ProxyRuTestUrl
-Write-Result 'direct (checkip) non-empty' ([bool]$d)
-if ($d -and $i) { Write-Result 'eth0 == checkip (proxy down)'  ($i -eq $d) -Detail "eth0=$i checkip=$d" }
-if ($d -and $r) { Write-Result 'ident == checkip (proxy down)' ($r -eq $d) -Detail "ident=$r checkip=$d" }
-
-Write-Host '=== Phase: setup ===' -ForegroundColor Cyan
-& "$PSScriptRoot\setup.ps1"
-Reset-ConnectionPool
+$logStart = if (Test-Path $SingboxLog) { (Get-Content $SingboxLog | Measure-Object -Line).Lines } else { 0 }
 
 Write-Host '=== Verify: pre-flight ===' -ForegroundColor Cyan
 Write-Result 'sing-box process running' ([bool](Get-Process -Name 'sing-box' -ErrorAction SilentlyContinue))
@@ -72,10 +87,22 @@ Write-Host "=== Verify: $ProxyIpv6ItNovncTag IPv6 routing ===" -ForegroundColor 
 $itIpv6Ok = $false
 try {
     $ipv6TestUrl = (Get-Content $SecretsFile -Raw | ConvertFrom-Json).$ProxyIpv6ItNovncTag.ipv6_test_url
-    & curl.exe -6 -fsSI --max-time 15 $ipv6TestUrl | Out-Null
+    & curl.exe -fsSI --max-time 15 $ipv6TestUrl | Out-Null
     $itIpv6Ok = $LASTEXITCODE -eq 0
 } catch { }
-Write-Result "$ProxyIpv6ItNovncTag IPv6 test URL reachable" $itIpv6Ok
+Write-Result "$ProxyIpv6ItNovncTag normal hostname resolution works" $itIpv6Ok
+
+$ipv6LiteralOk = $false
+try {
+    $ipv6TestHost = ([uri]$ipv6TestUrl).DnsSafeHost
+    $dns = Invoke-RestMethod -Uri "https://cloudflare-dns.com/dns-query?name=$([uri]::EscapeDataString($ipv6TestHost))&type=AAAA" -Headers @{ Accept = 'application/dns-json' } -TimeoutSec 15
+    $ipv6Address = $dns.Answer | Where-Object { $_.type -eq 28 } | Select-Object -First 1 -ExpandProperty data
+    if ($ipv6Address) {
+        & curl.exe -6 -fsSI --resolve "${ipv6TestHost}:443:[$ipv6Address]" --max-time 15 $ipv6TestUrl | Out-Null
+        $ipv6LiteralOk = $LASTEXITCODE -eq 0
+    }
+} catch { }
+Write-Result "$ProxyIpv6ItNovncTag literal IPv6 routing works" $ipv6LiteralOk
 
 $noVncOk = $false
 try {
@@ -84,6 +111,18 @@ try {
     $noVncOk = $LASTEXITCODE -eq 0
 } catch { }
 Write-Result "$ProxyIpv6ItNovncTag noVNC reachable" $noVncOk
+
+Write-Host '=== Verify: HTTP/3 routing without fallback ===' -ForegroundColor Cyan
+if ((& curl.exe -V) -match 'HTTP3') {
+    $quicIt = & curl.exe -fsS --http3-only --max-time 15 $ProxyItHttp3TestUrl
+    $quicItExit = $LASTEXITCODE
+    $quicItIp = @($quicIt | Where-Object { $_ -match '^ip=' } | ForEach-Object { $_.Substring(3) }) -join ''
+    Write-Result 'proxy_it HTTP/3 exit matches TLS' ($quicItExit -eq 0 -and $quicItIp -eq $itIp)
+    $quicRu = & curl.exe -fsS --http3-only --max-time 15 $ProxyRuTestUrl
+    Write-Result 'proxy_ru HTTP/3 exit matches TLS' ($LASTEXITCODE -eq 0 -and ([string]$quicRu).Trim() -eq $ruIp)
+} else {
+    Write-Host 'HTTP/3 checks skipped: curl.exe lacks HTTP3 support.'
+}
 
 $sshTestCmd = (Get-Content $SecretsFile -Raw | ConvertFrom-Json).PSObject.Properties['ssh_test_command']
 if ($sshTestCmd -and $sshTestCmd.Value) {
@@ -170,8 +209,8 @@ Write-Result 'dns: www.bestbuy.com resolves to fake IPv4' ($geositeRemote -match
 
 Write-Host '=== Verify: log scan ===' -ForegroundColor Cyan
 if (Test-Path $SingboxLog) {
-    $suspicious = @(Select-String -Path $SingboxLog -Pattern 'WARN|FATAL|panic' -CaseSensitive:$false -ErrorAction SilentlyContinue)
-    Write-Result 'log: no WARN/FATAL/panic' ($suspicious.Count -eq 0) -Detail "lines=$($suspicious.Count)"
+    $suspicious = @(Select-String -Path $SingboxLog -Pattern 'WARN|ERROR|FATAL|panic' -CaseSensitive:$false -ErrorAction SilentlyContinue | Where-Object { $_.LineNumber -gt $logStart })
+    Write-Result 'log: no new WARN/ERROR/FATAL/panic' ($suspicious.Count -eq 0) -Detail "lines=$($suspicious.Count)"
     if ($suspicious.Count -gt 0) { $suspicious | Select-Object -First 5 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow } }
 } else {
     Write-Result "log: $SingboxLog exists" $false

@@ -24,9 +24,9 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
-import socket
 import sys
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +38,7 @@ from proxies_conf import all_of_kind, load
 # routing hop and break TCP forwarding (verified on Linux: without it, kernel
 # binds outbound sockets to the TUN address and packets never reach sing-box).
 _AUTO_REDIRECT = sys.platform == "linux"
+LOCAL_DOMAINS = ["home.arpa", "lan"]
 
 
 def _base_config(
@@ -132,12 +133,23 @@ def _resolve_ipv4(host: str) -> list[str]:
         pass
     else:
         return [host]
-    try:
-        info = socket.getaddrinfo(host, None, socket.AF_INET)
-    except OSError as e:
-        msg = f"failed to resolve {host!r}: {e}"
-        raise SystemExit(msg) from e
-    return sorted({str(entry[4][0]) for entry in info})
+    # System DNS can return this running proxy's fake IPs during regeneration.
+    query = urllib.parse.urlencode({"name": host, "type": "A"})
+    with urllib.request.urlopen(
+        f"https://dns.google/resolve?{query}", timeout=15
+    ) as response:
+        answer = json.load(response)
+    addresses = sorted(
+        {
+            str(ipaddress.IPv4Address(record["data"]))
+            for record in answer.get("Answer", [])
+            if record["type"] == 1
+        }
+    )
+    if not addresses:
+        msg = f"No real IPv4 address found for proxy endpoint {host!r}"
+        raise SystemExit(msg)
+    return addresses
 
 
 def _server_hosts(proxy: dict[str, Any]) -> list[str]:
@@ -213,7 +225,16 @@ def _route_rules(proxies: dict, endpoint_ips: list[str] | None = None) -> list[d
             item,
         ),
     )
-    domain_route_rules = []
+    domain_route_rules = [
+        {
+            "domain_suffix": [domain],
+            "action": "resolve",
+            "server": "doh-google",
+            "strategy": "prefer_ipv4",
+        }
+        for domain, tag, _ in domain_rules
+        if tag == "proxy_ipv6_it_novnc"
+    ]
     for domain, tag, ip_version in domain_rules:
         rule = {"domain_suffix": [domain], "outbound": tag}
         if ip_version:
@@ -283,9 +304,31 @@ def build(  # noqa: PLR0913
 
     proxies = load(proxies_path)
     cfg["dns"]["rules"] = _fakeip_dns_rules()
+    wireguard_domains = proxies.get("proxy_ipv6_it_novnc", {}).get("domains", [])
+    if wireguard_domains:
+        # Keep fake A records for IPv4-only clients, but allow WireGuard AAAA lookups.
+        cfg["dns"]["rules"].insert(
+            0,
+            {
+                "domain_suffix": sorted(set(wireguard_domains)),
+                "query_type": ["AAAA"],
+                "server": "doh-google",
+            },
+        )
     if local_dns_server:
         cfg["dns"]["rules"].insert(
-            0, {"domain_suffix": ["home.arpa"], "server": "local"}
+            0, {"domain_suffix": LOCAL_DOMAINS, "server": "local"}
+        )
+        cfg["route"]["rules"].extend(
+            [
+                {
+                    "domain_suffix": LOCAL_DOMAINS,
+                    "action": "resolve",
+                    "server": "local",
+                    "strategy": "prefer_ipv4",
+                },
+                {"domain_suffix": LOCAL_DOMAINS, "outbound": "direct"},
+            ]
         )
 
     missing = _missing_outbounds(proxies, secrets)
@@ -313,6 +356,12 @@ def build(  # noqa: PLR0913
     outbounds = [proxy for proxy in parsed if proxy["type"] != "wireguard"]
     if endpoints:
         cfg["endpoints"] = endpoints
+        reject_inbound = {
+            "inbound": [endpoint["tag"] for endpoint in endpoints],
+            "action": "reject",
+        }
+        cfg["route"]["rules"].insert(0, reject_inbound)
+        cfg["dns"]["rules"].insert(0, reject_inbound.copy())
     cfg["outbounds"].extend(outbounds)
 
     return cfg

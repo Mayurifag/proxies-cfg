@@ -1,36 +1,30 @@
 # proxies-cfg
 
 Personal TUN-based transparent proxy setup. Single binary
-([shtorm-7/sing-box-extended](https://github.com/shtorm-7/sing-box-extended) —
-upstream sing-box has no `xhttp` transport), driven entirely from subscription
-URLs.
+([shtorm-7/sing-box-extended](https://github.com/shtorm-7/sing-box-extended) — upstream sing-box has no `xhttp`
+transport), driven entirely from subscription URLs.
 
 - No GUI, no tray app — runs as a system service.
 - Auto-installed in autostart (systemd / LaunchDaemon / Scheduled Task).
-- Three proxy routes + direct: Russian-only sites via one, blocked sites via
-  another, everything else direct. The `direct` routing tag also catches VPS
-  panel domains (suffix match) so the proxy server itself is never tunneled.
-- Proxy outbounds come from **subscription URLs** or inline URIs. Subscriptions
-  are re-fetched on every `setup`.
-- runetfreedom geoip + geosite lists, refreshed daily, converted at install time
-  to sing-box JSON rule-sets.
+- macOS setup captures the current PATH for scheduled geodata updates. Rerun `make setup` after moving or upgrading
+  versioned tools such as `uv`.
+- Three proxy routes + direct: Russian-only sites via one, blocked sites via another, everything else direct. The
+  `direct` routing tag also catches VPS panel domains (suffix match) so the proxy server itself is never tunneled.
+- Proxy outbounds come from **subscription URLs** or inline URIs. Subscriptions are re-fetched on every `setup`.
+- runetfreedom geoip + geosite lists, refreshed daily, converted at install time to sing-box JSON rule-sets.
 - Currently supports hysteria2, VLESS/xhttp/Reality, and WireGuard endpoints.
 - DNS-over-HTTPS to 1.1.1.1 / 8.8.8.8.
 - `secrets.json` (sub URLs, sudo passwords) and `proxies.conf` are
-  [git-crypt](https://github.com/AGWA/git-crypt)-encrypted in repo (GPG mode);
-  plaintext after `git-crypt unlock`.
-- Linux (systemd), macOS (LaunchDaemon), Windows (Scheduled Task) — same
-  `proxies.conf`, same Python build pipeline.
+  [git-crypt](https://github.com/AGWA/git-crypt)-encrypted in repo (GPG mode); plaintext after `git-crypt unlock`.
+- Linux (systemd), macOS (LaunchDaemon), Windows (Scheduled Task) — same `proxies.conf`, same Python build pipeline.
 
 ## Subscription format
 
-Each outbound's `sub_url` returns base64-encoded plaintext containing one or
-more `proxy://...` URIs (one per line). The first URI is parsed. Secrets may
-also use inline `uri` for static configs like WireGuard.
+Each outbound's `sub_url` returns base64-encoded plaintext containing one or more `proxy://...` URIs (one per line). The
+first URI is parsed. Secrets may also use inline `uri` for static configs like WireGuard.
 
-Supported schemes: `hysteria2://`, `vless://`, `wireguard://`. Both `ws`/`grpc`
-transports recognised; `xhttp` requires the `sing-box-extended` fork which is
-used in this repo.
+Supported schemes: `hysteria2://`, `vless://`, `wireguard://`. Both `ws`/`grpc` transports recognised; `xhttp` requires
+the `sing-box-extended` fork which is used in this repo.
 
 ### Dropped URI fields
 
@@ -50,22 +44,20 @@ All three are anti-detection polish, not auth — connections still succeed.
 | macOS   | `git-crypt`, `gnupg`, `jq`, `uv`, brew `curl` for HTTP/3 |
 | Windows | `git-crypt`, `gnupg`, `jq`, `uv`, `make`                 |
 
-`uv` provides the Python interpreter (3.14, pinned via `.python-version`)
-plus dev tools (ruff) via `pyproject.toml` + `uv.lock`. No system Python
-needed — `uv python install` materialises 3.14 on first `uv run`. Plus a GPG
-keypair authorized to unlock the repo (see [Encrypted secrets](#encrypted-secrets)).
-Run `make doctor` after a fresh clone to verify everything is wired up.
+`uv` provides the Python interpreter (3.14, pinned via `.python-version`) plus dev tools (ruff) via `pyproject.toml` +
+`uv.lock`. No system Python needed — `uv python install` materialises 3.14 on first `uv run`. Plus a GPG keypair
+authorized to unlock the repo (see [Encrypted secrets](#encrypted-secrets)). Run `make doctor` after a fresh clone to
+verify everything is wired up.
 
 ### macOS: disable Touch ID for sudo (one-time)
 
-Setup/teardown/test feed the sudo password from `secrets.json` via
-`sudo -S -k`. macOS PAM puts Touch ID (`pam_tid.so`) ahead of stdin auth, so
-`sudo` pops a dialog every run. Disable for sudo only:
+Setup/teardown/test feed the sudo password from `secrets.json` via `sudo -S -k`. macOS PAM puts Touch ID (`pam_tid.so`)
+ahead of stdin auth, so `sudo` pops a dialog every run. Disable for sudo only:
 
-~~~sh
+```sh
 sudo cp /etc/pam.d/sudo_local /etc/pam.d/sudo_local.bak.proxiescfg
 sudo sed -i '' 's|^auth       sufficient     pam_tid.so|# auth       sufficient     pam_tid.so|' /etc/pam.d/sudo_local
-~~~
+```
 
 Restore: `sudo cp /etc/pam.d/sudo_local.bak.proxiescfg /etc/pam.d/sudo_local`.
 
@@ -90,52 +82,60 @@ Restore: `sudo cp /etc/pam.d/sudo_local.bak.proxiescfg /etc/pam.d/sudo_local`.
 
 ## Domains
 
-~~~sh
+```sh
 make add-domain domain=kremlin.ru proxy=proxy_ru
 make add-domain domain=cloud.ru   proxy=direct
 make add-geosite geosite=booking  proxy=proxy_it
 make remove-domain domain=kremlin.ru
 make add-domain   # interactive prompt
-~~~
+```
 
-Routing tags: `proxy_ru`, `proxy_it`, `proxy_ipv6_it_novnc`, `direct` (built-in
-bypass). All `domains` entries are suffix-matched — `mayurifag.ru` catches
-`mayurifag.ru` and `*.mayurifag.ru`. Edits `proxies.conf` and restarts the proxy.
+Routing tags: `proxy_ru`, `proxy_it`, `proxy_ipv6_it_novnc`, `direct` (built-in bypass). All `domains` entries are
+suffix-matched — `mayurifag.ru` catches `mayurifag.ru` and `*.mayurifag.ru`. Edits `proxies.conf` and restarts the
+proxy.
 
-DNS returns synthetic IPv4 addresses so sing-box, not the browser, selects the
-real address family. For sites without an explicit domain/protocol route,
-sing-box uses only IPv4 when A records exist. IPv6-only sites fall back to
-`proxy_ipv6_it_novnc` after category/geoip rules. IPv4 connection failure does
-not trigger IPv6 fallback. Browser Secure DNS can bypass this policy.
-Fake-IP mappings persist in the platform runtime directory across restarts.
+DNS returns synthetic IPv4 addresses so sing-box, not the browser, selects the real address family. For sites without an
+explicit domain/protocol route, sing-box uses only IPv4 when A records exist. IPv6-only sites fall back to
+`proxy_ipv6_it_novnc` after category/geoip rules. IPv4 connection failure does not trigger IPv6 fallback. Browser Secure
+DNS can bypass this policy. Fake-IP mappings persist in the platform runtime directory across restarts. Explicit
+WireGuard domain routes resolve through real DNS before entering the tunnel. Their AAAA queries bypass suppression,
+including the WireGuard endpoint's internal lookups. A queries still receive fake IPv4 addresses so IPv4-only clients
+can connect. `home.arpa` and `.lan` names resolve through the local DNS server and route directly; they never receive
+fake IPs.
 
-`[<tag>.ip_versions]` accepts `4` or `6` catch-all routing rules. These match
-the incoming address family, not the resolved addresses; they are not needed
-for the IPv6-only fallback.
+Config replacement is atomic: generation and `sing-box check` must both succeed before a working config is replaced.
+Failed or interrupted integration-test setup restores a previously running proxy. HTTP/3 checks use `--http3-only` and
+compare the proxy exit address; TCP fallback cannot pass them.
 
-When an IPv6 catch-all exists, `direct` domain suffixes apply only to IPv4. This
-lets IPv6-only subdomains, such as provider noVNC hosts, use WireGuard without
-per-domain entries.
+Daily geodata refresh also trims logs larger than 10 MiB. It retains three archives containing at most the newest 10 MiB
+each. Copy-and-truncate keeps the proxy running, but log lines written during rotation can be lost. Write-locked logs,
+such as an active Windows setup transcript, are skipped.
 
-Known IPv6-only test/provider domains may still be listed under
-`proxy_ipv6_it_novnc.domains` to override parent-domain direct rules.
+`[<tag>.ip_versions]` accepts `4` or `6` catch-all routing rules. These match the incoming address family, not the
+resolved addresses; they are not needed for the IPv6-only fallback.
 
-`[<tag>.protocols]` accepts sing-box sniffed protocol names. Current config
-routes `bittorrent` via `direct`, while HTTP/HTTPS tracker domains still follow
-normal domain/geosite/geoip rules and can go through a proxy.
+When an IPv6 catch-all exists, `direct` domain suffixes apply only to IPv4. This lets IPv6-only subdomains, such as
+provider noVNC hosts, use WireGuard without per-domain entries.
+
+Known IPv6-only test/provider domains may still be listed under `proxy_ipv6_it_novnc.domains` to override parent-domain
+direct rules. WireGuard defaults to MTU 1280 to avoid IPv6 TLS path-MTU stalls. Set `mtu` in the WireGuard URI to
+override it for a path known to support larger packets. WireGuard endpoints are egress-only: unsolicited inbound tunnel
+connections are rejected before routing, so the VPN cannot forward them to local services.
+
+`[<tag>.protocols]` accepts sing-box sniffed protocol names. Current config routes `bittorrent` via `direct`, while
+HTTP/HTTPS tracker domains still follow normal domain/geosite/geoip rules and can go through a proxy.
 
 ## Linux Docker And UFW
 
-Linux setup installs tagged rules in `/etc/ufw/before.rules` when UFW is installed.
-These IPv4 rules allow only redirected HTTPS from `docker0` and `br-*` bridges to the
-bridge's local address, without opening ordinary host listeners or accepting LAN/WAN
-input. The rules do not depend on sing-box's changing redirect port. Teardown removes them.
-For an existing installation, `make linux-firewall` applies the rules without
-restarting the proxy or fetching subscriptions.
+Linux setup installs tagged rules in `/etc/ufw/before.rules` when UFW is installed. These IPv4 rules allow only
+redirected HTTPS from `docker0` and `br-*` bridges to the bridge's local address, without opening ordinary host
+listeners or accepting LAN/WAN input. The rules do not depend on sing-box's changing redirect port. Teardown removes
+them. For an existing installation, `make linux-firewall` applies the rules without restarting the proxy or fetching
+subscriptions.
 
 ## Suggested shell aliases
 
-~~~sh
+```sh
 export PROXIES_CFG="$HOME/Code/proxies-cfg"
 alias proxy-cd='cd "$PROXIES_CFG"'
 alias proxy-setup='make -C "$PROXIES_CFG" setup'
@@ -149,11 +149,11 @@ alias proxy-geodata='make -C "$PROXIES_CFG" update-geodata'
 proxy-add() { make -C "$PROXIES_CFG" add-domain    domain="$1" proxy="${2:-proxy_it}"; }
 proxy-rm()  { make -C "$PROXIES_CFG" remove-domain domain="$1"; }
 alias proxy-remove='proxy-rm'
-~~~
+```
 
 PowerShell ($PROFILE):
 
-~~~powershell
+```powershell
 $ProxiesCfg = "$HOME\Code\proxies-cfg"
 function proxy-cd        { Set-Location $ProxiesCfg }
 function proxy-setup     { make -C $ProxiesCfg setup }
@@ -167,16 +167,16 @@ function proxy-geodata   { make -C $ProxiesCfg update-geodata }
 function proxy-add($d, $p = 'proxy_it') { make -C $ProxiesCfg add-domain    domain=$d proxy=$p }
 function proxy-rm($d)                   { make -C $ProxiesCfg remove-domain domain=$d }
 function proxy-remove($d)               { proxy-rm $d }
-~~~
+```
 
 ## Encrypted secrets
 
-`secrets.json` + `proxies.conf` are git-crypt-encrypted in repo (GPG mode).
-Working tree plaintext after unlock; remote stores ciphertext.
+`secrets.json` + `proxies.conf` are git-crypt-encrypted in repo (GPG mode). Working tree plaintext after unlock; remote
+stores ciphertext.
 
 ### Fresh clone (your GPG key already imported)
 
-~~~sh
+```sh
 # macOS
 brew install git-crypt gnupg jq uv
 
@@ -192,27 +192,25 @@ cd proxies-cfg
 make unlock           # git-crypt unlock
 make install-hooks    # arms .githooks/pre-commit
 make doctor           # sanity-check everything
-~~~
+```
 
-GPG key needs an encryption subkey (`[E]` flag). Verify:
-`gpg --list-secret-keys --with-subkey-fingerprints <email>` — look for
-`ssb … [E]`. If missing: `gpg --edit-key <keyid>` → `addkey` → encrypt-only →
-`save`, re-publish the public key.
+GPG key needs an encryption subkey (`[E]` flag). Verify: `gpg --list-secret-keys --with-subkey-fingerprints <email>` —
+look for `ssb … [E]`. If missing: `gpg --edit-key <keyid>` → `addkey` → encrypt-only → `save`, re-publish the public
+key.
 
 ### Authorize another GPG key
 
-~~~sh
+```sh
 git-crypt add-gpg-user <keyid>
 git push
-~~~
+```
 
 ## Notes
 
-- DNS exposes synthetic IPv4; routing uses real IPv4 when available and sends
-  otherwise-unmatched IPv6-only sites through WireGuard.
-- BitTorrent peer traffic is routed direct by `[direct.protocols]`; tracker
-  domains are not exempted and still follow normal proxy rules.
+- DNS exposes synthetic IPv4; routing uses real IPv4 when available and sends otherwise-unmatched IPv6-only sites
+  through WireGuard.
+- BitTorrent peer traffic is routed direct by `[direct.protocols]`; tracker domains are not exempted and still follow
+  normal proxy rules.
 - `twitch.tv` needs proxy for country restriction; CDN stays direct.
 - `api.ipify.org` / `ident.me` are test-only domains for verifying routing.
-- Subscription panels rate-limit. One fetch per `setup` is fine; rapid
-  successive fetches return 403 for ~30s.
+- Subscription panels rate-limit. One fetch per `setup` is fine; rapid successive fetches return 403 for ~30s.

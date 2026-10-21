@@ -10,6 +10,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+Invoke-Python -Arguments @((Join-Path $RepoRoot 'shared\rotate_logs.py'), $RuntimeDir)
+
 if (-not (Test-Path $GeodataDir)) { New-Item -ItemType Directory -Path $GeodataDir | Out-Null }
 if (-not (Test-Path $RuleSetDir)) { New-Item -ItemType Directory -Path $RuleSetDir | Out-Null }
 

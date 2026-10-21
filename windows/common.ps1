@@ -133,7 +133,16 @@ function Install-Singbox {
 function Build-SingboxConfig {
     if (-not (Test-Path $RuntimeDir)) { New-Item -ItemType Directory -Path $RuntimeDir | Out-Null }
     $json = (& "$PSScriptRoot\generate_config.ps1") -join "`n"
-    [System.IO.File]::WriteAllText($SingboxConfig, $json, (New-Object System.Text.UTF8Encoding $false))
+    if ($LASTEXITCODE -ne 0) { throw 'Config generation failed.' }
+    $temporary = "$SingboxConfig.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [System.IO.File]::WriteAllText($temporary, $json, [System.Text.UTF8Encoding]::new($false))
+        & $SingboxExe check -c $temporary
+        if ($LASTEXITCODE -ne 0) { throw 'Generated sing-box config is invalid.' }
+        [System.IO.File]::Move($temporary, $SingboxConfig, $true)
+    } finally {
+        if (Test-Path $temporary) { Remove-Item $temporary -Force }
+    }
 }
 
 function Restart-Proxy {

@@ -13,6 +13,7 @@
 - Run `make generate-config` after changes that affect config generation.
 - Run `make doctor` after environment, git-crypt, hook, or prerequisite changes.
 - For routing-only requests, prefer the add/remove command output as verification; do not run broad integration tests unless needed.
+- Network checks must exercise normal DNS resolution; forced-address probes are supplemental. Explicit WireGuard domains need real-DNS exceptions and resolution before the terminal route action; the endpoint also performs internal DNS lookups.
 - Do not use browser automation for site reachability or routing checks unless CLI tools cannot verify the behavior, a CAPTCHA/login/manual browser step is required, or the user explicitly asks for browser testing.
 
 ## Project Boundaries

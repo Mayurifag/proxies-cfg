@@ -74,10 +74,19 @@ elevate_and_run() {
 	printf '%s\n' "$pw" | sudo -S -k -p '' env "PATH=$PATH" "REPO_ROOT=$(pwd)" "OS_COMMON=$OS_COMMON" "FUNC=$fn" bash -c 'cd "$REPO_ROOT" && source "$OS_COMMON" && "$FUNC"'
 }
 
-generate_singbox_config() {
-	mkdir -p "$RUNTIME_DIR"
-	bash "$GENERATE_CONFIG" >"$SINGBOX_CONFIG"
-}
+generate_singbox_config() (
+	mkdir -p "$RUNTIME_DIR" || exit "$?"
+	temporary=$(mktemp "$SINGBOX_CONFIG.XXXXXX") || exit "$?"
+	trap 'rm -f "$temporary"' EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	bash "$GENERATE_CONFIG" >"$temporary" || exit "$?"
+	"$SINGBOX_BIN" check -c "$temporary" || exit "$?"
+	if [[ -n "${SUDO_UID:-}" ]]; then
+		chown "$SUDO_UID:${SUDO_GID:?}" "$temporary" || exit "$?"
+	fi
+	mv -f "$temporary" "$SINGBOX_CONFIG"
+)
 
 refresh_rule_sets() {
 	: "${GEODATA_DIR:?}" "${RULE_SET_DIR:?}"
