@@ -100,8 +100,11 @@ explicit domain/protocol route, sing-box uses only IPv4 when A records exist. IP
 DNS can bypass this policy. Fake-IP mappings persist in the platform runtime directory across restarts. Explicit
 WireGuard domain routes resolve through real DNS before entering the tunnel. Their AAAA queries bypass suppression,
 including the WireGuard endpoint's internal lookups. A queries still receive fake IPv4 addresses so IPv4-only clients
-can connect. `home.arpa` and `.lan` names resolve through the local DNS server and route directly; they never receive
-fake IPs.
+can connect. `.test` names resolve through local DNS and route directly. Homelab names try the LAN DNS override, then
+fall back to encrypted public DNS when it is unavailable; the public address requires NetBird. Neither uses fake IPs.
+The NetBird control hostname also bypasses fake IPs, using encrypted DNS and direct routing because NetBird's protected
+dialer cannot reach synthetic addresses. The optional `homelab_domains` and `real_dns_direct_domains` lists in encrypted
+`secrets.json` define these suffixes.
 
 Config replacement is atomic: generation and `sing-box check` must both succeed before a working config is replaced.
 Failed or interrupted integration-test setup restores a previously running proxy. HTTP/3 checks use `--http3-only` and

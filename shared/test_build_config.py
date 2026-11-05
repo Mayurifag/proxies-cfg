@@ -9,6 +9,11 @@ from unittest.mock import patch
 
 import build_config
 
+PRIVATE_DOMAINS = {
+    "homelab_domains": ["home.example"],
+    "real_dns_direct_domains": ["control.example"],
+}
+
 
 class BuildConfigTest(unittest.TestCase):
     def test_wireguard_mtu_defaults_to_ipv6_minimum_and_accepts_uri_override(
@@ -164,25 +169,94 @@ class BuildConfigTest(unittest.TestCase):
         assert rules[-2] == bypass
         assert rules[-1] == {"rule_set": ["geoip-ru"], "outbound": "proxy_ru"}
 
-    def test_lan_names_bypass_fake_ip_and_resolve_locally(self) -> None:
+    def test_local_names_bypass_fake_ip_and_resolve_locally(self) -> None:
+        with patch.object(build_config, "load", return_value={"direct": {}}):
+            config = build_config.build(
+                "unused",
+                PRIVATE_DOMAINS,
+                "/runtime/rule-sets",
+                local_dns_server="192.0.2.1",
+            )
+
+        assert config["dns"]["rules"][0] == {
+            "domain_suffix": ["test"],
+            "server": "local",
+        }
+        assert config["dns"]["rules"][1:3] == [
+            {
+                "domain_suffix": ["home.example"],
+                "action": "evaluate",
+                "server": "local",
+                "tag": "homelab-local",
+                "timeout": "1s",
+            },
+            {
+                "domain_suffix": ["home.example"],
+                "match_response": "homelab-local",
+                "response_rcode": "NOERROR",
+                "action": "respond",
+            },
+        ]
+        assert config["route"]["rules"][2:4] == [
+            {
+                "domain_suffix": ["test"],
+                "action": "resolve",
+                "server": "local",
+                "strategy": "prefer_ipv4",
+            },
+            {"domain_suffix": ["test"], "outbound": "direct"},
+        ]
+        assert config["route"]["rules"][4:6] == [
+            {
+                "domain_suffix": ["home.example"],
+                "action": "resolve",
+                "strategy": "prefer_ipv4",
+            },
+            {"domain_suffix": ["home.example"], "outbound": "direct"},
+        ]
+
+    def test_netbird_control_uses_real_encrypted_dns_and_direct_routing(self) -> None:
+        with patch.object(build_config, "load", return_value={"direct": {}}):
+            config = build_config.build("unused", PRIVATE_DOMAINS, "/runtime/rule-sets")
+
+        dns_rules = config["dns"]["rules"]
+        real_dns = {"domain_suffix": ["control.example"], "server": "doh-google"}
+        fake_dns = {"query_type": ["A"], "action": "route", "server": "fakeip"}
+        assert dns_rules.index(real_dns) < dns_rules.index(fake_dns)
+        assert config["route"]["rules"][4:6] == [
+            {
+                "domain_suffix": ["control.example"],
+                "action": "resolve",
+                "server": "doh-google",
+                "strategy": "prefer_ipv4",
+            },
+            {"domain_suffix": ["control.example"], "outbound": "direct"},
+        ]
+
+    def test_missing_private_domains_do_not_create_catch_all_rules(self) -> None:
         with patch.object(build_config, "load", return_value={"direct": {}}):
             config = build_config.build(
                 "unused", {}, "/runtime/rule-sets", local_dns_server="192.0.2.1"
             )
 
-        assert config["dns"]["rules"][0] == {
-            "domain_suffix": ["home.arpa", "lan"],
-            "server": "local",
-        }
-        assert config["route"]["rules"][2:4] == [
-            {
-                "domain_suffix": ["home.arpa", "lan"],
-                "action": "resolve",
-                "server": "local",
-                "strategy": "prefer_ipv4",
-            },
-            {"domain_suffix": ["home.arpa", "lan"], "outbound": "direct"},
+        assert config["dns"]["rules"] == [
+            {"domain_suffix": ["test"], "server": "local"},
+            *build_config._fakeip_dns_rules(),
         ]
+        assert all(rule.get("domain_suffix") != [] for rule in config["route"]["rules"])
+
+    def test_private_domain_lists_reject_invalid_values(self) -> None:
+        for key in PRIVATE_DOMAINS:
+            for value in ("home.example", [""], [123]):
+                with (
+                    self.subTest(key=key, value=value),
+                    patch.object(build_config, "load", return_value={"direct": {}}),
+                    self.assertRaises(SystemExit) as raised,  # noqa: PT027
+                ):
+                    build_config.build("unused", {key: value}, "/runtime/rule-sets")
+                assert str(raised.exception) == (
+                    f"secrets.json: {key} must be a list of non-empty strings"
+                )
 
 
 if __name__ == "__main__":

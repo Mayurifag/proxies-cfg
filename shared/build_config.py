@@ -38,7 +38,7 @@ from proxies_conf import all_of_kind, load
 # routing hop and break TCP forwarding (verified on Linux: without it, kernel
 # binds outbound sockets to the TUN address and packets never reach sing-box).
 _AUTO_REDIRECT = sys.platform == "linux"
-LOCAL_DOMAINS = ["home.arpa", "lan"]
+LOCAL_DOMAINS = ["test"]
 
 
 def _base_config(
@@ -105,6 +105,16 @@ def _geo_tags(kinds: dict) -> list[str]:
     return [f"geosite-{c}" for c in sorted(set(kinds.get("geosites", [])))] + [
         f"geoip-{c}" for c in sorted(set(kinds.get("geoips", [])))
     ]
+
+
+def _secret_domains(secrets: dict, key: str) -> list[str]:
+    domains = secrets.get(key, [])
+    if not isinstance(domains, list) or any(
+        not isinstance(domain, str) or not domain.strip() for domain in domains
+    ):
+        msg = f"secrets.json: {key} must be a list of non-empty strings"
+        raise SystemExit(msg)
+    return domains
 
 
 def _missing_outbounds(proxies: dict, secrets: dict) -> list[str]:
@@ -283,6 +293,17 @@ def _fakeip_dns_rules() -> list[dict]:
     ]
 
 
+def _domain_dns_rules(
+    homelab_domains: list[str], real_dns_direct_domains: list[str]
+) -> list[dict]:
+    rules = []
+    if real_dns_direct_domains:
+        rules.append({"domain_suffix": real_dns_direct_domains, "server": "doh-google"})
+    if homelab_domains:
+        rules.append({"domain_suffix": homelab_domains, "server": "doh-google"})
+    return rules + _fakeip_dns_rules()
+
+
 def build(  # noqa: PLR0913
     proxies_path: str,
     secrets: dict,
@@ -303,7 +324,9 @@ def build(  # noqa: PLR0913
         cfg["inbounds"][0]["interface_name"] = interface_name
 
     proxies = load(proxies_path)
-    cfg["dns"]["rules"] = _fakeip_dns_rules()
+    homelab_domains = _secret_domains(secrets, "homelab_domains")
+    real_dns_direct_domains = _secret_domains(secrets, "real_dns_direct_domains")
+    cfg["dns"]["rules"] = _domain_dns_rules(homelab_domains, real_dns_direct_domains)
     wireguard_domains = proxies.get("proxy_ipv6_it_novnc", {}).get("domains", [])
     if wireguard_domains:
         # Keep fake A records for IPv4-only clients, but allow WireGuard AAAA lookups.
@@ -316,9 +339,26 @@ def build(  # noqa: PLR0913
             },
         )
     if local_dns_server:
-        cfg["dns"]["rules"].insert(
-            0, {"domain_suffix": LOCAL_DOMAINS, "server": "local"}
-        )
+        local_dns_rules = [{"domain_suffix": LOCAL_DOMAINS, "server": "local"}]
+        if homelab_domains:
+            local_dns_rules.extend(
+                [
+                    {
+                        "domain_suffix": homelab_domains,
+                        "action": "evaluate",
+                        "server": "local",
+                        "tag": "homelab-local",
+                        "timeout": "1s",
+                    },
+                    {
+                        "domain_suffix": homelab_domains,
+                        "match_response": "homelab-local",
+                        "response_rcode": "NOERROR",
+                        "action": "respond",
+                    },
+                ]
+            )
+        cfg["dns"]["rules"][0:0] = local_dns_rules
         cfg["route"]["rules"].extend(
             [
                 {
@@ -328,6 +368,31 @@ def build(  # noqa: PLR0913
                     "strategy": "prefer_ipv4",
                 },
                 {"domain_suffix": LOCAL_DOMAINS, "outbound": "direct"},
+            ]
+        )
+    # Use the LAN override when available and public NetBird DNS when roaming.
+    if homelab_domains:
+        cfg["route"]["rules"].extend(
+            [
+                {
+                    "domain_suffix": homelab_domains,
+                    "action": "resolve",
+                    "strategy": "prefer_ipv4",
+                },
+                {"domain_suffix": homelab_domains, "outbound": "direct"},
+            ]
+        )
+    # NetBird's protected dialer bypasses the TUN and cannot reach fake IPs.
+    if real_dns_direct_domains:
+        cfg["route"]["rules"].extend(
+            [
+                {
+                    "domain_suffix": real_dns_direct_domains,
+                    "action": "resolve",
+                    "server": "doh-google",
+                    "strategy": "prefer_ipv4",
+                },
+                {"domain_suffix": real_dns_direct_domains, "outbound": "direct"},
             ]
         )
 
