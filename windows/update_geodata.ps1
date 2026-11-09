@@ -27,13 +27,15 @@ function Test-NeedsUpdate {
 
 if (Test-NeedsUpdate $GeoIpPath) {
     Write-Phase 'geodata' "downloading geoip.dat from $GeoipUrl"
-    Invoke-WebRequest -Uri $GeoipUrl -OutFile "$GeoIpPath.tmp" -UseBasicParsing
+    Invoke-GithubRawDownload -Url $GeoipUrl -Destination "$GeoIpPath.tmp"
+    if ((Get-Item "$GeoIpPath.tmp").Length -eq 0) { throw 'geoip.dat empty' }
     Move-Item "$GeoIpPath.tmp" $GeoIpPath -Force
 }
 
 if (Test-NeedsUpdate $GeoSitePath) {
     Write-Phase 'geodata' "downloading geosite.dat from $GeositeUrl"
-    Invoke-WebRequest -Uri $GeositeUrl -OutFile "$GeoSitePath.tmp" -UseBasicParsing
+    Invoke-GithubRawDownload -Url $GeositeUrl -Destination "$GeoSitePath.tmp"
+    if ((Get-Item "$GeoSitePath.tmp").Length -eq 0) { throw 'geosite.dat empty' }
     Move-Item "$GeoSitePath.tmp" $GeoSitePath -Force
 }
 

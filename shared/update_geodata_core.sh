@@ -3,6 +3,7 @@
 # and export GEODATA_DIR + RULE_SET_DIR.
 set -euo pipefail
 source shared/constants.sh
+source shared/github.sh
 
 uv run --quiet python shared/rotate_logs.py "$(dirname "$SINGBOX_LOG")"
 
@@ -18,12 +19,12 @@ fetch_if_stale() {
 	local url="$1" dst="$2"
 	if fresh "$dst"; then return 0; fi
 	echo "Downloading $(basename "$dst")..." >&2
-	curl -fsSL --retry 3 --retry-delay 2 -o "$dst.tmp" "$url"
-	mv "$dst.tmp" "$dst"
-	[[ -s "$dst" ]] || {
+	github_raw_download "$url" "$dst.tmp"
+	[[ -s "$dst.tmp" ]] || {
 		echo "Error: $dst empty" >&2
 		exit 1
 	}
+	mv "$dst.tmp" "$dst"
 }
 
 fetch_if_stale "$GEOIP_URL" "$GEOIP_PATH"

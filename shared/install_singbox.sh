@@ -6,6 +6,7 @@
 # After return: $SINGBOX_BIN exists and is executable.
 set -euo pipefail
 source shared/constants.sh
+source shared/github.sh
 
 : "${SINGBOX_ARCH:?}" "${SINGBOX_BIN:?}" "${RUNTIME_DIR:?}"
 
@@ -13,10 +14,7 @@ extract_dir=$(dirname "$SINGBOX_BIN")
 sentinel="$extract_dir/.version"
 mkdir -p "$extract_dir" "$RUNTIME_DIR"
 
-resolved=$(curl -fsSL --max-time 5 \
-	"https://api.github.com/repos/$SINGBOX_REPO/releases/latest" 2>/dev/null |
-	sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' |
-	head -n1 || true)
+resolved=$(github_latest_version "$SINGBOX_REPO" || true)
 
 current=""
 [[ -f "$sentinel" ]] && current=$(<"$sentinel")
@@ -41,13 +39,13 @@ else
 	echo "[install_singbox] installing $resolved" >&2
 fi
 
-url="https://github.com/$SINGBOX_REPO/releases/download/v$resolved/sing-box-$resolved-$SINGBOX_ARCH.tar.gz"
-tar_path="$RUNTIME_DIR/sing-box-$resolved-$SINGBOX_ARCH.tar.gz"
+asset="sing-box-$resolved-$SINGBOX_ARCH.tar.gz"
+tar_path="$RUNTIME_DIR/$asset"
 extract_tmp="$RUNTIME_DIR/sing-box-$resolved-$SINGBOX_ARCH.extract"
 
 rm -rf "$extract_tmp" "$tar_path.tmp"
-echo "[install_singbox] downloading $url" >&2
-curl -fsSL --retry 3 --retry-delay 2 -o "$tar_path.tmp" "$url"
+echo "[install_singbox] downloading $asset" >&2
+github_release_download "$SINGBOX_REPO" "v$resolved" "$asset" "$tar_path.tmp"
 mv "$tar_path.tmp" "$tar_path"
 mkdir -p "$extract_tmp"
 /usr/bin/env tar -xzf "$tar_path" -C "$extract_tmp" --strip-components=1

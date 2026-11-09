@@ -73,6 +73,88 @@ function Invoke-Python {
     return $output
 }
 
+function Invoke-GhToFile {
+    param([string[]]$Arguments, [string]$Destination, [int]$TimeoutMilliseconds = -1)
+    $gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $gh) { return $false }
+    $info = [System.Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = $gh.Source
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $info.Environment['GH_TELEMETRY'] = '0'
+    $info.Environment['GH_PROMPT_DISABLED'] = '1'
+    $info.Environment['GH_NO_UPDATE_NOTIFIER'] = '1'
+    foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $info
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open($Destination, [System.IO.FileMode]::Create)
+        if (-not $process.Start()) { return $false }
+        if ($TimeoutMilliseconds -ge 0) {
+            $copy = $process.StandardOutput.BaseStream.CopyToAsync($stream)
+            if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+                $process.Kill($true)
+                $process.WaitForExit()
+                [void]$copy.GetAwaiter().GetResult()
+                return $false
+            }
+            [void]$copy.GetAwaiter().GetResult()
+        } else {
+            $process.StandardOutput.BaseStream.CopyTo($stream)
+            $process.WaitForExit()
+        }
+        $stream.Flush()
+        return $process.ExitCode -eq 0 -and $stream.Length -gt 0
+    } catch {
+        return $false
+    } finally {
+        if ($stream) { $stream.Dispose() }
+        $process.Dispose()
+    }
+}
+
+function Get-GithubLatestVersion {
+    param([string]$Repo)
+    $temporary = [System.IO.Path]::GetTempFileName()
+    try {
+        if (Invoke-GhToFile -Arguments @('api', '--hostname', 'github.com', "repos/$Repo/releases/latest", '--jq', '.tag_name') -Destination $temporary -TimeoutMilliseconds 5000) {
+            $tag = (Get-Content -LiteralPath $temporary -Raw).Trim()
+            if ($tag -match '^v?[0-9][0-9A-Za-z._+-]*$') { return ($tag -replace '^v', '') }
+        }
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+
+    Write-Phase 'github' 'gh unavailable or failed; trying curl'
+    try {
+        $json = & curl.exe -fsSL --max-time 5 "https://api.github.com/repos/$Repo/releases/latest"
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $tag = (($json -join "`n") | ConvertFrom-Json).tag_name
+        if ($tag -match '^v?[0-9][0-9A-Za-z._+-]*$') { return ($tag -replace '^v', '') }
+    } catch { return $null }
+    return $null
+}
+
+function Invoke-GithubReleaseDownload {
+    param([string]$Repo, [string]$Tag, [string]$Asset, [string]$Destination)
+    if (Invoke-GhToFile -Arguments @('release', 'download', $Tag, '--repo', "github.com/$Repo", '--pattern', $Asset, '--output', '-') -Destination $Destination) { return }
+    Write-Phase 'github' 'gh unavailable or failed; trying curl'
+    & curl.exe -fsSL --retry 3 --retry-delay 2 -o $Destination "https://github.com/$Repo/releases/download/$Tag/$Asset"
+    if ($LASTEXITCODE -ne 0) { throw "curl failed downloading $Asset (exit $LASTEXITCODE)" }
+}
+
+function Invoke-GithubRawDownload {
+    param([string]$Url, [string]$Destination)
+    $uri = [uri]$Url
+    $parts = $uri.AbsolutePath.TrimStart('/') -split '/', 4
+    if ($uri.Host -eq 'raw.githubusercontent.com' -and $parts.Length -eq 4) {
+        $endpoint = "repos/$($parts[0])/$($parts[1])/contents/$($parts[3])?ref=$($parts[2])"
+        if (Invoke-GhToFile -Arguments @('api', '--hostname', 'github.com', '-H', 'Accept:application/vnd.github.raw+json', $endpoint) -Destination $Destination) { return }
+    }
+    Write-Phase 'github' 'gh unavailable or failed; trying curl'
+    & curl.exe -fsSL --retry 3 --retry-delay 2 -o $Destination $Url
+    if ($LASTEXITCODE -ne 0) { throw "curl failed downloading geodata (exit $LASTEXITCODE)" }
+}
+
 function Install-Singbox {
     foreach ($d in $RuntimeDir, $SingboxDir) {
         if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null }
@@ -80,12 +162,7 @@ function Install-Singbox {
     $sentinel = Join-Path $SingboxDir '.version'
     $current  = if (Test-Path $sentinel) { (Get-Content $sentinel -Raw).Trim() } else { '' }
 
-    $resolved = $null
-    try {
-        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$SingboxRepo/releases/latest" `
-            -TimeoutSec 5 -UseBasicParsing
-        $resolved = ($rel.tag_name -replace '^v', '')
-    } catch { $resolved = $null }
+    $resolved = Get-GithubLatestVersion -Repo $SingboxRepo
 
     if (-not $resolved) {
         if ((Test-Path $SingboxExe) -and $current) {
@@ -106,15 +183,15 @@ function Install-Singbox {
         Write-Phase 'install_singbox' "installing $resolved"
     }
 
-    $zipUrl  = "https://github.com/$SingboxRepo/releases/download/v$resolved/sing-box-$resolved-windows-amd64.zip"
-    $zipPath = Join-Path $RuntimeDir "sing-box-$resolved-windows-amd64.zip"
+    $asset = "sing-box-$resolved-windows-amd64.zip"
+    $zipPath = Join-Path $RuntimeDir $asset
     $zipTmp = "$zipPath.tmp"
     $extractTmp = Join-Path $RuntimeDir "sing-box-$resolved-windows-amd64.extract"
 
     Remove-Item $zipTmp -Force -ErrorAction SilentlyContinue
     Remove-Item $extractTmp -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Phase 'install_singbox' "downloading $zipUrl"
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipTmp -UseBasicParsing
+    Write-Phase 'install_singbox' "downloading $asset"
+    Invoke-GithubReleaseDownload -Repo $SingboxRepo -Tag "v$resolved" -Asset $asset -Destination $zipTmp
     Move-Item $zipTmp $zipPath -Force
     Expand-Archive -Path $zipPath -DestinationPath $extractTmp -Force
     $installSource = $extractTmp
