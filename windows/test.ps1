@@ -135,7 +135,7 @@ if ($sshTestCmd -and $sshTestCmd.Value) {
     }
 }
 
-$probeRuleset = Join-Path $RuleSetDir 'geosite-ru-available-only-inside.json'
+$probeRuleset = Join-Path $RuleSetDir 'geosite-ru-available-only-inside.srs'
 if ((Test-Path $probeRuleset) -and $ruIp) {
     Write-Host '=== Verify: ru-available-only-inside routing ===' -ForegroundColor Cyan
     $null = [System.Net.ServicePointManager]::FindServicePoint($RuInsideProbeUrl).CloseConnectionGroup('')
@@ -160,14 +160,14 @@ try {
 import sys; sys.path.insert(0, 'shared')
 from proxies_conf import all_of_kind, load
 d = load('proxies.conf')
-for c in all_of_kind(d, 'geosites'): print(f'geosite-{c}.json')
-for c in all_of_kind(d, 'geoips'):   print(f'geoip-{c}.json')
+for c in all_of_kind(d, 'geosites'): print(f'geosite-{c}.srs')
+for c in all_of_kind(d, 'geoips'):   print(f'geoip-{c}.srs')
 "@
     } finally { Pop-Location }
     $expected = $expected | Where-Object { $_ }
 } catch { Write-Result 'rule-set: list expected' $false -Detail $_ }
 if ($expected) {
-    $actual = @(Get-ChildItem -Path $RuleSetDir -Filter '*.json' -ErrorAction SilentlyContinue |
+    $actual = @(Get-ChildItem -Path $RuleSetDir -Filter '*.srs' -ErrorAction SilentlyContinue |
                 ForEach-Object { $_.Name })
     $extra   = $actual   | Where-Object { $_ -notin $expected }
     $missing = $expected | Where-Object { $_ -notin $actual }
@@ -186,10 +186,11 @@ $geositeDnsRule = @($config.dns.rules | Where-Object {
 })
 Write-Result 'dns: global fake IPv4 rule exists' ($geositeDnsRule.Count -gt 0)
 
-$geositeRuleset = Join-Path $RuleSetDir 'geosite-bestbuy.json'
+$geositeRuleset = Join-Path $RuleSetDir 'geosite-bestbuy.srs'
 $bestbuyInRuleset = $false
 if (Test-Path $geositeRuleset) {
-    $bestbuyInRuleset = (Get-Content $geositeRuleset -Raw) -match 'bestbuy\.com'
+    $match = & $SingboxExe rule-set match -f binary $geositeRuleset 'bestbuy.com' 2>&1
+    $bestbuyInRuleset = $LASTEXITCODE -eq 0 -and (($match -join "`n") -match 'match rules\.')
 }
 Write-Result 'rule-set: geosite-bestbuy contains bestbuy.com' $bestbuyInRuleset
 

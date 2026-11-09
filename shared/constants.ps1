@@ -2,8 +2,7 @@
 
 $SingboxRepo    = 'shtorm-7/sing-box-extended'
 
-$GeoipUrl   = 'https://raw.githubusercontent.com/runetfreedom/russia-blocked-geoip/release/geoip.dat'
-$GeositeUrl = 'https://raw.githubusercontent.com/runetfreedom/russia-blocked-geosite/release/geosite.dat'
+$GeodataRepo = 'runetfreedom/russia-v2ray-rules-dat'
 
 $DirectTestUrl  = 'https://checkip.amazonaws.com'
 $ProxyItTestUrl = 'https://api.ipify.org'

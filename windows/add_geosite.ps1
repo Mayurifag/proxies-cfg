@@ -51,13 +51,11 @@ $addArgs = @(
 )
 Invoke-Python -Arguments $addArgs
 
-$geositeDat = Join-Path $GeodataDir 'geosite.dat'
-$geoipDat = Join-Path $GeodataDir 'geoip.dat'
-if ((Test-Path $geositeDat) -and (Test-Path $geoipDat)) {
+$archive = Join-Path $GeodataDir 'sing-box.zip'
+if (Test-Path $archive) {
     $convertArgs = @(
-        (Join-Path $RepoRoot 'shared\geo_convert.py'),
-        $geositeDat, $geoipDat, $RuleSetDir,
-        '--from-proxies-conf', $ProxiesConf
+        (Join-Path $RepoRoot 'shared\extract_rule_sets.py'),
+        $archive, $RuleSetDir, $ProxiesConf
     )
     Invoke-Python -Arguments $convertArgs
 }

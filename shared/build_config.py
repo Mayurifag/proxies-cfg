@@ -408,8 +408,8 @@ def build(  # noqa: PLR0913
         {
             "type": "local",
             "tag": t,
-            "format": "source",
-            "path": f"{rule_set_dir}/{t}.json",
+            "format": "binary",
+            "path": f"{rule_set_dir}/{t}.srs",
         }
         for t in sorted(all_tags)
     ]

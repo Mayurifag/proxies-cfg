@@ -147,7 +147,7 @@ else
 	echo "  QUIC tests skipped ($CURL_HTTP3 lacks --http3)"
 fi
 
-if [[ -s "$RULE_SET_DIR/geosite-ru-available-only-inside.json" ]]; then
+if [[ -s "$RULE_SET_DIR/geosite-ru-available-only-inside.srs" ]]; then
 	echo '=== Verify: ru-available-only-inside routing ==='
 	PROBE_IP=$(curl -s --max-time 15 "$RU_INSIDE_PROBE_URL" |
 		grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1 || true)
@@ -175,7 +175,7 @@ jq -e '[.dns.rules[] | select(.server == "fakeip" and (.query_type | index("A"))
 	echo 'FAIL: global fake IPv4 DNS rule missing' >&2
 	exit 1
 }
-jq -e '.. | strings | select(. == "bestbuy.com")' "$RULE_SET_DIR/geosite-bestbuy.json" >/dev/null || {
+"${SINGBOX_BIN:-$OS_TAG/runtime/bin/sing-box}" rule-set match -f binary "$RULE_SET_DIR/geosite-bestbuy.srs" bestbuy.com 2>&1 | grep -q 'match rules\.' || {
 	echo 'FAIL: geosite-bestbuy rule-set missing bestbuy.com' >&2
 	exit 1
 }
@@ -193,11 +193,16 @@ import os, sys
 sys.path.insert(0, 'shared')
 from proxies_conf import all_of_kind, load
 d = load('proxies.conf')
-for c in all_of_kind(d, 'geosites'): print(f'geosite-{c}.json')
-for c in all_of_kind(d, 'geoips'):   print(f'geoip-{c}.json')
+for c in all_of_kind(d, 'geosites'): print(f'geosite-{c}.srs')
+for c in all_of_kind(d, 'geoips'):   print(f'geoip-{c}.srs')
 PY
 )
-actual=$(cd "$RULE_SET_DIR" 2>/dev/null && ls -1 2>/dev/null | sort)
+actual=$(
+	for f in "$RULE_SET_DIR"/*.srs; do
+		[[ -f "$f" ]] || continue
+		printf '%s\n' "${f##*/}"
+	done | sort
+)
 expected_sorted=$(echo "$expected" | sort)
 diff_out=$(diff <(echo "$expected_sorted") <(echo "$actual") || true)
 [[ -z "$diff_out" ]] || {

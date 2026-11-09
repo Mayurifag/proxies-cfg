@@ -16,6 +16,26 @@ PRIVATE_DOMAINS = {
 
 
 class BuildConfigTest(unittest.TestCase):
+    def test_geodata_uses_binary_rule_sets(self) -> None:
+        proxies = {"direct": {"geosites": ["example"], "geoips": ["xx"]}}
+        with patch.object(build_config, "load", return_value=proxies):
+            config = build_config.build("unused", {}, "/runtime/rule-sets")
+
+        assert config["route"]["rule_set"] == [
+            {
+                "type": "local",
+                "tag": "geoip-xx",
+                "format": "binary",
+                "path": "/runtime/rule-sets/geoip-xx.srs",
+            },
+            {
+                "type": "local",
+                "tag": "geosite-example",
+                "format": "binary",
+                "path": "/runtime/rule-sets/geosite-example.srs",
+            },
+        ]
+
     def test_wireguard_mtu_defaults_to_ipv6_minimum_and_accepts_uri_override(
         self,
     ) -> None:

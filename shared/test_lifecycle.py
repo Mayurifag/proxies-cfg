@@ -3,19 +3,72 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from zipfile import ZipFile
 
 REPO = Path(__file__).resolve().parent.parent
 
 
 @unittest.skipUnless(os.name == "posix", "Bash lifecycle runs on Unix")
 class LifecycleTest(unittest.TestCase):
+    def use_real_python(self, directory: Path) -> None:
+        uv = directory / "uv"
+        uv.unlink()
+        uv.write_text(f'#!/bin/sh\nshift 3\nexec {shlex.quote(sys.executable)} "$@"\n')
+        uv.chmod(0o700)
+
+    def test_rule_set_extraction_preserves_working_files_on_missing_category(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "proxies.conf"
+            config.write_text("[direct.geosites]\nexample\n[direct.geoips]\nxx\n")
+            archive = root / "sing-box.zip"
+            rules = root / "rules"
+            rules.mkdir()
+            old = rules / "geosite-example.srs"
+            old.write_bytes(b"old")
+            stale = rules / "geoip-stale.srs"
+            stale.write_bytes(b"stale")
+            legacy = rules / "geosite-example.json"
+            legacy.write_bytes(b"legacy")
+
+            def run_extraction() -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    [
+                        sys.executable,
+                        str(REPO / "shared/extract_rule_sets.py"),
+                        str(archive),
+                        str(rules),
+                        str(config),
+                    ],
+                    check=False,
+                    capture_output=True,
+                )
+
+            with ZipFile(archive, "w") as data:
+                data.writestr("rule-set-geosite/geosite-example.srs", b"new")
+            assert run_extraction().returncode != 0
+            assert old.read_bytes() == b"old"
+            assert stale.read_bytes() == b"stale"
+
+            with ZipFile(archive, "a") as data:
+                data.writestr("rule-set-geoip/geoip-xx.srs", b"ip")
+            assert run_extraction().returncode == 0
+            assert old.read_bytes() == b"new"
+            assert (rules / "geoip-xx.srs").read_bytes() == b"ip"
+            assert not stale.exists()
+            assert legacy.read_bytes() == b"legacy"
+
     def github_commands(self, root: Path, mode: str) -> dict[str, str]:
         directory = root / "bin"
         directory.mkdir()
@@ -160,7 +213,7 @@ fi
                             != 0
                         )
 
-    def test_empty_geodata_download_preserves_existing_file(self) -> None:
+    def test_failed_geodata_download_keeps_cached_archive(self) -> None:
         for curl_mode in ("empty", "fail"):
             with (
                 self.subTest(curl_mode=curl_mode),
@@ -171,21 +224,23 @@ fi
                     root, "empty" if curl_mode == "empty" else "fail"
                 )
                 directory = Path(env["PATH"])
-                uv = directory / "uv"
-                uv.unlink()
-                uv.write_text("#!/bin/sh\nexit 0\n")
-                uv.chmod(0o700)
+                self.use_real_python(directory)
                 geodata = root / "geodata"
                 geodata.mkdir()
-                old = geodata / "geoip.dat"
-                old.write_bytes(b"existing geodata")
+                old = geodata / "sing-box.zip"
+                with ZipFile(old, "w") as archive:
+                    archive.writestr("rule-set-geosite/geosite-example.srs", b"rule")
+                original = old.read_bytes()
                 os.utime(old, (0, 0))
+                config = root / "proxies.conf"
+                config.write_text("[direct.geosites]\nexample\n")
                 env.update(
                     PATH=str(directory) + os.pathsep + os.defpath,
                     CURL_MODE=curl_mode,
                     GEODATA_DIR=str(geodata),
                     RULE_SET_DIR=str(root / "rules"),
                     SINGBOX_LOG=str(root / "singbox.log"),
+                    PROXIES_CONF=str(config),
                 )
                 result = subprocess.run(
                     ["/bin/bash", "shared/update_geodata_core.sh"],
@@ -195,8 +250,9 @@ fi
                     capture_output=True,
                     text=True,
                 )
-                assert result.returncode != 0
-                assert old.read_bytes() == b"existing geodata"
+                assert result.returncode == 0, result.stderr
+                assert old.read_bytes() == original
+                assert (root / "rules/geosite-example.srs").read_bytes() == b"rule"
 
     def test_offline_release_lookup_keeps_installed_binary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -306,7 +362,7 @@ if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
                             != 0
                         )
 
-    def test_powershell_failed_geodata_preserves_existing_file(self) -> None:
+    def test_powershell_failed_geodata_keeps_cached_archive(self) -> None:
         pwsh = shutil.which("pwsh")
         if not pwsh:
             self.skipTest("PowerShell is not installed")
@@ -319,21 +375,27 @@ if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
                 env = self.github_commands(
                     root, "empty" if curl_mode == "empty" else "fail"
                 )
-                uv = Path(env["PATH"]) / "uv"
-                uv.unlink()
-                uv.write_text("#!/bin/sh\nexit 0\n")
-                uv.chmod(0o700)
+                self.use_real_python(Path(env["PATH"]))
                 windows = root / "windows"
                 shared = root / "shared"
                 windows.mkdir()
                 shared.mkdir()
                 for name in ("common.ps1", "update_geodata.ps1"):
                     shutil.copy2(REPO / "windows" / name, windows / name)
-                shutil.copy2(REPO / "shared/constants.ps1", shared / "constants.ps1")
+                for name in (
+                    "constants.ps1",
+                    "extract_rule_sets.py",
+                    "proxies_conf.py",
+                    "rotate_logs.py",
+                ):
+                    shutil.copy2(REPO / "shared" / name, shared / name)
+                (root / "proxies.conf").write_text("[direct.geosites]\nexample\n")
                 geodata = windows / "runtime/geodata"
                 geodata.mkdir(parents=True)
-                old = geodata / "geoip.dat"
-                old.write_bytes(b"existing geodata")
+                old = geodata / "sing-box.zip"
+                with ZipFile(old, "w") as archive:
+                    archive.writestr("rule-set-geosite/geosite-example.srs", b"rule")
+                original = old.read_bytes()
                 os.utime(old, (0, 0))
                 env["CURL_MODE"] = curl_mode
                 result = subprocess.run(
@@ -350,8 +412,11 @@ if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
                     text=True,
                     timeout=20,
                 )
-                assert result.returncode != 0
-                assert old.read_bytes() == b"existing geodata"
+                assert result.returncode == 0, result.stderr
+                assert old.read_bytes() == original
+                assert (
+                    windows / "runtime/rule-sets/geosite-example.srs"
+                ).read_bytes() == b"rule"
 
     def test_failed_generation_or_validation_preserves_working_config(self) -> None:
         for generator_exit, validator_exit in [(42, 0), (0, 43), (0, 0)]:

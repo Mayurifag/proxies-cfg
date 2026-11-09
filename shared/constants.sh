@@ -19,8 +19,7 @@ OS_COMMON="$OS_TAG/common.sh"
 
 SINGBOX_REPO="shtorm-7/sing-box-extended"
 
-GEOIP_URL="https://raw.githubusercontent.com/runetfreedom/russia-blocked-geoip/release/geoip.dat"
-GEOSITE_URL="https://raw.githubusercontent.com/runetfreedom/russia-blocked-geosite/release/geosite.dat"
+GEODATA_REPO="runetfreedom/russia-v2ray-rules-dat"
 
 DIRECT_TEST_URL="https://checkip.amazonaws.com"
 PROXY_IT_TEST_URL="https://api.ipify.org"
