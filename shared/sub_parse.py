@@ -35,7 +35,7 @@ def fetch_first_uri(sub_url: str) -> str:
         line = raw.strip()
         if line and re.match(r"^[a-z0-9]+://", line):
             return line
-    msg = f"no proxy URI found in subscription body: {decoded!r}"
+    msg = "no proxy URI found in subscription body"
     raise RuntimeError(msg)
 
 
@@ -236,7 +236,7 @@ def parse_uri(uri: str, tag: str) -> dict:
     scheme = uri.split("://", 1)[0].lower()
     parser = PARSERS.get(scheme)
     if parser is None:
-        msg = f"unsupported scheme: {scheme!r} (uri: {uri!r})"
+        msg = "unsupported proxy URI scheme"
         raise RuntimeError(msg)
     return parser(uri, tag)
 

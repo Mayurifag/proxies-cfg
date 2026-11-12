@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import unittest
 from io import BytesIO
 from pathlib import Path
@@ -16,6 +17,30 @@ PRIVATE_DOMAINS = {
 
 
 class BuildConfigTest(unittest.TestCase):
+    def test_subscription_errors_do_not_expose_response(self) -> None:
+        response = BytesIO(base64.b64encode(b"password=example-test-secret"))
+        error = None
+        with patch.object(
+            build_config.sub_parse.urllib.request, "urlopen", return_value=response
+        ):
+            try:
+                build_config.sub_parse.fetch_first_uri("https://example.invalid/sub")
+            except RuntimeError as exc:
+                error = exc
+        assert error is not None
+        assert str(error) == "no proxy URI found in subscription body"
+
+    def test_unsupported_uri_errors_do_not_expose_credentials(self) -> None:
+        error = None
+        try:
+            build_config.sub_parse.parse_uri(
+                "unsupported://example-test-secret@host", "test"
+            )
+        except RuntimeError as exc:
+            error = exc
+        assert error is not None
+        assert str(error) == "unsupported proxy URI scheme"
+
     def test_geodata_uses_binary_rule_sets(self) -> None:
         proxies = {"direct": {"geosites": ["example"], "geoips": ["xx"]}}
         with patch.object(build_config, "load", return_value=proxies):
