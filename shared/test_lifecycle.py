@@ -73,12 +73,20 @@ class LifecycleTest(unittest.TestCase):
         directory = root / "bin"
         directory.mkdir()
         log = root / "calls"
+        log.touch()
         if mode != "missing":
             gh = directory / "gh"
             gh.write_text(
                 """#!/bin/sh
 printf 'gh\\n' >> "$CALL_LOG"
 [ "$GH_TELEMETRY" = 0 ] && [ "$GH_PROMPT_DISABLED" = 1 ] || exit 90
+[ "$GH_NO_UPDATE_NOTIFIER" = 1 ] || exit 90
+if [ "$1" = auth ]; then
+    [ "$2" = status ] && [ "$3" = --active ] &&
+        [ "$4" = --hostname ] && [ "$5" = github.com ] || exit 90
+    [ "$GH_MODE" != unauth ]
+    exit $?
+fi
 case "$GH_MODE" in
     fail) printf partial; exit 1 ;;
     empty) exit 0 ;;
@@ -105,32 +113,9 @@ fi
             )
             gh.chmod(0o700)
         curl = directory / "curl"
-        curl.write_text(
-            """#!/bin/sh
-printf 'curl\\n' >> "$CALL_LOG"
-output=
-while [ "$#" -gt 0 ]; do
-    if [ "$1" = -o ]; then shift; output=$1; fi
-    shift
-done
-if [ "${CURL_MODE:-}" = fail ]; then exit 7; fi
-if [ -n "$output" ]; then
-    if [ "${CURL_MODE:-}" = empty ]; then
-        : > "$output"
-    else
-        printf '\\000\\376curl' > "$output"
-    fi
-else
-    printf '{"tag_name":"v2.3.4"}\\n'
-fi
-""",
-        )
+        curl.write_text("#!/bin/sh\nprintf 'curl\\n' >> \"$CALL_LOG\"\nexit 1\n")
         curl.chmod(0o700)
         (directory / "curl.exe").symlink_to(curl)
-        jq = shutil.which("jq")
-        if not jq:
-            self.skipTest("jq is required for the curl release fallback")
-        (directory / "jq").symlink_to(jq)
         uv = shutil.which("uv")
         assert uv, "uv is required"
         (directory / "uv").symlink_to(uv)
@@ -143,9 +128,64 @@ fi
             "POWERSHELL_TELEMETRY_OPTOUT": "1",
         }
 
-    def test_github_downloads_prefer_gh_and_fall_back_to_curl(self) -> None:
+    def test_linux_root_uses_checkout_owner_for_github(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env = self.github_commands(root, "success")
+            directory = Path(env["PATH"])
+            for name, output in (
+                ("stat", "1234"),
+                ("getent", "tester:x:1234:1234::/home/tester:/bin/sh"),
+            ):
+                command = directory / name
+                command.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+                command.chmod(0o700)
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    "-c",
+                    'source "$1"; github_prepare 0 linux-gnu; '
+                    'printf "%s\\n" "${github_cli[@]}"',
+                    "check",
+                    str(REPO / "shared/github.sh"),
+                ],
+                cwd=root,
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+            assert result.stdout.splitlines() == [
+                "runuser",
+                "-u",
+                "tester",
+                "--",
+                "env",
+                "HOME=/home/tester",
+                "XDG_RUNTIME_DIR=/run/user/1234",
+                "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1234/bus",
+                "gh",
+            ]
+            (directory / "getent").write_text("#!/bin/sh\nexit 1\n")
+            failed = subprocess.run(
+                [
+                    "/bin/bash",
+                    "-c",
+                    'source "$1"; github_prepare 0 linux-gnu',
+                    "check",
+                    str(REPO / "shared/github.sh"),
+                ],
+                cwd=root,
+                env=env,
+                check=False,
+                capture_output=True,
+            )
+            assert failed.returncode != 0
+
+    def test_github_downloads_require_authenticated_gh(self) -> None:
         for operation in ("latest", "raw", "release"):
-            for mode in ("success", "fail", "missing", "empty", "stall"):
+            for mode in ("success", "unauth", "fail", "missing", "empty", "stall"):
                 if mode == "stall" and operation != "latest":
                     continue
                 with (
@@ -185,22 +225,20 @@ fi
                         text=True,
                         timeout=15,
                     )
-                    assert result.returncode == 0, result.stderr
-                    if operation == "latest":
-                        assert result.stdout.strip() == (
-                            "1.2.3" if mode == "success" else "2.3.4"
-                        )
-                    else:
-                        assert destination.read_bytes() == (
-                            b"\x00\xffgh" if mode == "success" else b"\x00\xfecurl"
-                        )
+                    assert (result.returncode == 0) == (mode == "success"), (
+                        result.stderr
+                    )
+                    if mode == "success" and operation == "latest":
+                        assert result.stdout.strip() == "1.2.3"
+                    elif mode == "success":
+                        assert destination.read_bytes() == b"\x00\xffgh"
                     calls = (root / "calls").read_text().splitlines()
                     assert calls == (
-                        ["gh"]
-                        if mode == "success"
-                        else ["curl"]
+                        []
                         if mode == "missing"
-                        else ["gh", "curl"]
+                        else ["gh"]
+                        if mode == "unauth"
+                        else ["gh", "gh"]
                     )
                     if mode == "stall":
                         pid = (root / "calls.pid").read_text()
@@ -214,15 +252,13 @@ fi
                         )
 
     def test_failed_geodata_download_keeps_cached_archive(self) -> None:
-        for curl_mode in ("empty", "fail"):
+        for mode in ("empty", "fail", "missing", "unauth"):
             with (
-                self.subTest(curl_mode=curl_mode),
+                self.subTest(mode=mode),
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 root = Path(temporary)
-                env = self.github_commands(
-                    root, "empty" if curl_mode == "empty" else "fail"
-                )
+                env = self.github_commands(root, mode)
                 directory = Path(env["PATH"])
                 self.use_real_python(directory)
                 geodata = root / "geodata"
@@ -236,7 +272,6 @@ fi
                 config.write_text("[direct.geosites]\nexample\n")
                 env.update(
                     PATH=str(directory) + os.pathsep + os.defpath,
-                    CURL_MODE=curl_mode,
                     GEODATA_DIR=str(geodata),
                     RULE_SET_DIR=str(root / "rules"),
                     SINGBOX_LOG=str(root / "singbox.log"),
@@ -253,6 +288,7 @@ fi
                 assert result.returncode == 0, result.stderr
                 assert old.read_bytes() == original
                 assert (root / "rules/geosite-example.srs").read_bytes() == b"rule"
+                assert "curl" not in (root / "calls").read_text().splitlines()
 
     def test_offline_release_lookup_keeps_installed_binary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -268,7 +304,6 @@ fi
             sentinel.write_text("1.0.0")
             env.update(
                 PATH=str(directory) + os.pathsep + os.defpath,
-                CURL_MODE="fail",
                 RUNTIME_DIR=str(runtime),
                 SINGBOX_BIN=str(binary),
                 SINGBOX_ARCH="linux-amd64",
@@ -284,6 +319,7 @@ fi
             assert result.returncode == 0, result.stderr
             assert binary.read_text() == "#!/bin/sh\nexit 0\n"
             assert sentinel.read_text() == "1.0.0"
+            assert "curl" not in (root / "calls").read_text().splitlines()
 
     def test_powershell_github_downloads_preserve_binary_output(self) -> None:
         pwsh = shutil.which("pwsh")
@@ -314,7 +350,7 @@ if ($env:GH_TELEMETRY -ne 'previous' -or $env:GH_PROMPT_DISABLED -ne 'previous' 
 if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
 """
         for operation in ("latest", "raw", "release"):
-            for mode in ("success", "fail", "missing", "empty", "stall"):
+            for mode in ("success", "unauth", "fail", "missing", "empty", "stall"):
                 if mode == "stall" and operation != "latest":
                     continue
                 with (
@@ -335,21 +371,20 @@ if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
                         text=True,
                         timeout=20,
                     )
-                    assert result.returncode == 0, result.stderr
-                    if operation == "latest":
-                        expected = "1.2.3" if mode == "success" else "2.3.4"
-                        assert f"VERSION={expected}" in result.stdout
-                    else:
-                        assert (root / "output data.bin").read_bytes() == (
-                            b"\x00\xffgh" if mode == "success" else b"\x00\xfecurl"
-                        )
+                    assert (result.returncode == 0) == (
+                        mode == "success" or operation == "latest"
+                    ), result.stderr
+                    if mode == "success" and operation == "latest":
+                        assert "VERSION=1.2.3" in result.stdout
+                    elif mode == "success":
+                        assert (root / "output data.bin").read_bytes() == b"\x00\xffgh"
                     calls = (root / "calls").read_text().splitlines()
                     assert calls == (
-                        ["gh"]
-                        if mode == "success"
-                        else ["curl"]
+                        []
                         if mode == "missing"
-                        else ["gh", "curl"]
+                        else ["gh"]
+                        if mode == "unauth"
+                        else ["gh", "gh"]
                     )
                     if mode == "stall":
                         pid = (root / "calls.pid").read_text()
@@ -366,15 +401,13 @@ if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
         pwsh = shutil.which("pwsh")
         if not pwsh:
             self.skipTest("PowerShell is not installed")
-        for curl_mode in ("empty", "fail"):
+        for mode in ("empty", "fail", "missing", "unauth"):
             with (
-                self.subTest(curl_mode=curl_mode),
+                self.subTest(mode=mode),
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 root = Path(temporary)
-                env = self.github_commands(
-                    root, "empty" if curl_mode == "empty" else "fail"
-                )
+                env = self.github_commands(root, mode)
                 self.use_real_python(Path(env["PATH"]))
                 windows = root / "windows"
                 shared = root / "shared"
@@ -397,7 +430,6 @@ if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
                     archive.writestr("rule-set-geosite/geosite-example.srs", b"rule")
                 original = old.read_bytes()
                 os.utime(old, (0, 0))
-                env["CURL_MODE"] = curl_mode
                 result = subprocess.run(
                     [
                         pwsh,
@@ -417,6 +449,7 @@ if ($env:TEST_OPERATION -eq 'latest') { Write-Output "VERSION=$version" }
                 assert (
                     windows / "runtime/rule-sets/geosite-example.srs"
                 ).read_bytes() == b"rule"
+                assert "curl" not in (root / "calls").read_text().splitlines()
 
     def test_failed_generation_or_validation_preserves_working_config(self) -> None:
         for generator_exit, validator_exit in [(42, 0), (0, 43), (0, 0)]:

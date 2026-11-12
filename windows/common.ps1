@@ -74,13 +74,14 @@ function Invoke-Python {
 }
 
 function Invoke-GhToFile {
-    param([string[]]$Arguments, [string]$Destination, [int]$TimeoutMilliseconds = -1)
+    param([string[]]$Arguments, [string]$Destination, [int]$TimeoutMilliseconds = -1, [switch]$AllowEmpty)
     $gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $gh) { return $false }
     $info = [System.Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $gh.Source
     $info.UseShellExecute = $false
     $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
     $info.Environment['GH_TELEMETRY'] = '0'
     $info.Environment['GH_PROMPT_DISABLED'] = '1'
     $info.Environment['GH_NO_UPDATE_NOTIFIER'] = '1'
@@ -91,12 +92,14 @@ function Invoke-GhToFile {
     try {
         $stream = [System.IO.File]::Open($Destination, [System.IO.FileMode]::Create)
         if (-not $process.Start()) { return $false }
+        $discard = $process.StandardError.ReadToEndAsync()
         if ($TimeoutMilliseconds -ge 0) {
             $copy = $process.StandardOutput.BaseStream.CopyToAsync($stream)
             if (-not $process.WaitForExit($TimeoutMilliseconds)) {
                 $process.Kill($true)
                 $process.WaitForExit()
                 [void]$copy.GetAwaiter().GetResult()
+                [void]$discard.GetAwaiter().GetResult()
                 return $false
             }
             [void]$copy.GetAwaiter().GetResult()
@@ -104,8 +107,9 @@ function Invoke-GhToFile {
             $process.StandardOutput.BaseStream.CopyTo($stream)
             $process.WaitForExit()
         }
+        [void]$discard.GetAwaiter().GetResult()
         $stream.Flush()
-        return $process.ExitCode -eq 0 -and $stream.Length -gt 0
+        return $process.ExitCode -eq 0 -and ($AllowEmpty -or $stream.Length -gt 0)
     } catch {
         return $false
     } finally {
@@ -114,8 +118,19 @@ function Invoke-GhToFile {
     }
 }
 
+function Test-GithubAuth {
+    $temporary = [System.IO.Path]::GetTempFileName()
+    try {
+        return (Invoke-GhToFile -Arguments @('auth', 'status', '--active', '--hostname', 'github.com') -Destination $temporary -TimeoutMilliseconds 5000 -AllowEmpty)
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
 function Get-GithubLatestVersion {
     param([string]$Repo)
+    if (-not (Test-GithubAuth)) {
+        Write-Phase 'github' 'authenticated gh unavailable'
+        return $null
+    }
     $temporary = [System.IO.Path]::GetTempFileName()
     try {
         if (Invoke-GhToFile -Arguments @('api', '--hostname', 'github.com', "repos/$Repo/releases/latest", '--jq', '.tag_name') -Destination $temporary -TimeoutMilliseconds 5000) {
@@ -124,35 +139,25 @@ function Get-GithubLatestVersion {
         }
     } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
 
-    Write-Phase 'github' 'gh unavailable or failed; trying curl'
-    try {
-        $json = & curl.exe -fsSL --max-time 5 "https://api.github.com/repos/$Repo/releases/latest"
-        if ($LASTEXITCODE -ne 0) { return $null }
-        $tag = (($json -join "`n") | ConvertFrom-Json).tag_name
-        if ($tag -match '^v?[0-9][0-9A-Za-z._+-]*$') { return ($tag -replace '^v', '') }
-    } catch { return $null }
+    Write-Phase 'github' 'authenticated gh release lookup failed'
     return $null
 }
 
 function Invoke-GithubReleaseDownload {
     param([string]$Repo, [string]$Tag, [string]$Asset, [string]$Destination)
-    if (Invoke-GhToFile -Arguments @('release', 'download', $Tag, '--repo', "github.com/$Repo", '--pattern', $Asset, '--output', '-') -Destination $Destination) { return }
-    Write-Phase 'github' 'gh unavailable or failed; trying curl'
-    & curl.exe -fsSL --retry 3 --retry-delay 2 -o $Destination "https://github.com/$Repo/releases/download/$Tag/$Asset"
-    if ($LASTEXITCODE -ne 0) { throw "curl failed downloading $Asset (exit $LASTEXITCODE)" }
+    if ((Test-GithubAuth) -and (Invoke-GhToFile -Arguments @('release', 'download', $Tag, '--repo', "github.com/$Repo", '--pattern', $Asset, '--output', '-') -Destination $Destination)) { return }
+    throw "authenticated gh failed downloading $Asset"
 }
 
 function Invoke-GithubRawDownload {
     param([string]$Url, [string]$Destination)
     $uri = [uri]$Url
     $parts = $uri.AbsolutePath.TrimStart('/') -split '/', 4
-    if ($uri.Host -eq 'raw.githubusercontent.com' -and $parts.Length -eq 4) {
+    if ($uri.Host -eq 'raw.githubusercontent.com' -and $parts.Length -eq 4 -and (Test-GithubAuth)) {
         $endpoint = "repos/$($parts[0])/$($parts[1])/contents/$($parts[3])?ref=$($parts[2])"
         if (Invoke-GhToFile -Arguments @('api', '--hostname', 'github.com', '-H', 'Accept:application/vnd.github.raw+json', $endpoint) -Destination $Destination) { return }
     }
-    Write-Phase 'github' 'gh unavailable or failed; trying curl'
-    & curl.exe -fsSL --retry 3 --retry-delay 2 -o $Destination $Url
-    if ($LASTEXITCODE -ne 0) { throw "curl failed downloading geodata (exit $LASTEXITCODE)" }
+    throw 'authenticated gh raw download failed'
 }
 
 function Install-Singbox {

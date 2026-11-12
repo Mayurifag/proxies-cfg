@@ -11,7 +11,7 @@ transport), driven entirely from subscription URLs.
 - Three proxy routes + direct: Russian-only sites via one, blocked sites via another, everything else direct. The
   `direct` routing tag also catches VPS panel domains (suffix match) so the proxy server itself is never tunneled.
 - Proxy outbounds come from **subscription URLs** or inline URIs. Subscriptions are re-fetched on every `setup`.
-- runetfreedom geoip + geosite lists, refreshed daily, converted at install time to sing-box JSON rule-sets.
+- runetfreedom geoip + geosite binary rule sets, refreshed daily and cached locally.
 - Currently supports hysteria2, VLESS/xhttp/Reality, and WireGuard endpoints.
 - DNS-over-HTTPS to 1.1.1.1 / 8.8.8.8.
 - `secrets.json` (sub URLs, sudo passwords) and `proxies.conf` are
@@ -38,19 +38,24 @@ All three are anti-detection polish, not auth — connections still succeed.
 
 ## Prerequisites
 
-| OS      | Required                                                 |
-| ------- | -------------------------------------------------------- |
-| Linux   | `git-crypt`, `gnupg`, `jq`, `uv`, `curl`, `systemd`      |
-| macOS   | `git-crypt`, `gnupg`, `jq`, `uv`, brew `curl` for HTTP/3 |
-| Windows | `git-crypt`, `gnupg`, `jq`, `uv`, `make`, `curl.exe`     |
+| OS      | Required                                                       |
+| ------- | -------------------------------------------------------------- |
+| Linux   | `git-crypt`, `gnupg`, `gh`, `jq`, `uv`, `curl`, `systemd`      |
+| macOS   | `git-crypt`, `gnupg`, `gh`, `jq`, `uv`, brew `curl` for HTTP/3 |
+| Windows | `git-crypt`, `gnupg`, `gh`, `jq`, `uv`, `make`, `curl.exe`     |
 
 `uv` provides the Python interpreter (3.14, pinned via `.python-version`) plus dev tools (ruff) via `pyproject.toml` +
 `uv.lock`. No system Python needed — `uv python install` materialises 3.14 on first `uv run`. Plus a GPG keypair
 authorized to unlock the repo (see [Encrypted secrets](#encrypted-secrets)). Run `make doctor` after a fresh clone to
 verify everything is wired up.
 
-GitHub release and geodata downloads try an authenticated `gh` first, then use `curl` if `gh` is missing or fails.
-Scheduled tasks run under system accounts, which may not have access to your user `gh` login and can use the fallback.
+GitHub downloads require `gh` authenticated to github.com.
+
+Linux root jobs use the checkout owner's login when available.
+
+Other system accounts need their own `gh` login.
+
+On failure, the installed binary and cached geodata are reused when available.
 
 ### macOS: disable Touch ID for sudo (one-time)
 
@@ -75,7 +80,7 @@ Restore: `sudo cp /etc/pam.d/sudo_local.bak.proxiescfg /etc/pam.d/sudo_local`.
 | `make status`          | show proxy status                            |
 | `make logs`            | follow proxy log                             |
 | `make flush-dns`       | flush DNS cache                              |
-| `make update-geodata`  | refresh runetfreedom .dat → JSON rule-sets   |
+| `make update-geodata`  | refresh runetfreedom binary rule sets        |
 | `make generate-config` | print sing-box config to stdout (inspection) |
 | `make ci`              | shell + python + ruff + git-crypt status     |
 | `make doctor`          | verify all prereqs + repo state              |
